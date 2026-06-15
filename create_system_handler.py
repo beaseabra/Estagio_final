@@ -1,7 +1,9 @@
 # ===== handlers/create_system_handler.py =====
+# FIX: `from aggregator import aggregate_blueprint` agora é válido —
+# o aggregator.py expõe o alias retrocompatível.
 
 import time
-import json 
+import json
 
 from planner import generate_plan
 from generator_objects import generate_objects
@@ -9,6 +11,7 @@ from generator_relations import generate_relations
 from generator_workspaces import generate_workspaces
 from generator_actions import generate_actions
 
+# FIX: aggregate_blueprint é agora um alias exportado por aggregator.py
 from aggregator import aggregate_blueprint
 from validator import validate_and_fix
 from evaluator import evaluate_schema
@@ -20,6 +23,7 @@ from storage import save_schema
 
 MAX_RETRIES = 1
 
+
 def log(message: str):
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{timestamp}] {message}"
@@ -27,34 +31,30 @@ def log(message: str):
     try:
         with open("pipeline.log", "a") as f:
             f.write(line + "\n")
-    except:
+    except Exception:
         pass
+
 
 def sanitize_blueprint_safely(data, seen=None):
     if seen is None:
         seen = set()
-        
     if isinstance(data, (dict, list)):
         obj_id = id(data)
         if obj_id in seen:
-            return None 
-            
+            return None
         seen.add(obj_id)
-        
         if isinstance(data, dict):
             return {k: sanitize_blueprint_safely(v, seen.copy()) for k, v in data.items()}
         elif isinstance(data, list):
             return [sanitize_blueprint_safely(v, seen.copy()) for v in data]
-            
     return data
+
 
 def handle_create_system(prompt: str):
     total_start = time.time()
     original_prompt = prompt
 
-    # =========================
-    # CACHE (LIGADA NOVAMENTE)
-    # =========================
+    # Cache
     cached, similarity = verificar_cache(prompt)
     if cached:
         total_time = round(time.time() - total_start, 2)
@@ -64,14 +64,11 @@ def handle_create_system(prompt: str):
             "cached": True,
             "schema": cached.get("schema"),
             "evaluation": cached.get("evaluation"),
-            "execution_time": total_time
+            "execution_time": total_time,
         }
 
     log("[cache] MISS")
 
-    # =========================
-    # PIPELINE LOOP
-    # =========================
     for attempt in range(1, MAX_RETRIES + 1):
         log(f"[pipeline] tentativa {attempt}")
         try:
@@ -80,18 +77,31 @@ def handle_create_system(prompt: str):
                 log("[planner] erro ao gerar plano")
                 continue
 
-            try: objects = generate_objects(plan)
-            except Exception as e: log(f"[generator_objects] erro: {e}"); objects = {}
+            try:
+                objects = generate_objects(plan)
+            except Exception as e:
+                log(f"[generator_objects] erro: {e}")
+                objects = {}
 
-            try: relations = generate_relations(plan)
-            except Exception as e: log(f"[generator_relations] erro: {e}"); relations = {}
+            try:
+                relations = generate_relations(plan)
+            except Exception as e:
+                log(f"[generator_relations] erro: {e}")
+                relations = {}
 
-            try: workspaces = generate_workspaces(plan)
-            except Exception as e: log(f"[generator_workspaces] erro: {e}"); workspaces = {}
+            try:
+                workspaces = generate_workspaces(plan)
+            except Exception as e:
+                log(f"[generator_workspaces] erro: {e}")
+                workspaces = {}
 
-            try: actions = generate_actions(plan)
-            except Exception as e: log(f"[generator_actions] erro: {e}"); actions = {}
+            try:
+                actions = generate_actions(plan)
+            except Exception as e:
+                log(f"[generator_actions] erro: {e}")
+                actions = {}
 
+            # aggregate_blueprint(objects, relations, actions, workspaces) — ordem do alias
             schema = aggregate_blueprint(objects, relations, actions, workspaces)
             schema = apply_semantic_rules(schema)
             schema = apply_canonical_schema(schema)
@@ -105,18 +115,18 @@ def handle_create_system(prompt: str):
 
                 guardar_na_cache(
                     original_prompt,
-                    {
-                        "schema": safe_validated,
-                        "evaluation": safe_evaluation
-                    },
-                    safe_evaluation
+                    {"schema": safe_validated, "evaluation": safe_evaluation},
+                    safe_evaluation,
                 )
 
                 save_schema(safe_validated, original_prompt, safe_evaluation, total_time)
                 log(f"[pipeline] sucesso ({total_time}s)")
                 return {
-                    "success": True, "cached": False, "schema": safe_validated,
-                    "evaluation": safe_evaluation, "execution_time": total_time
+                    "success": True,
+                    "cached": False,
+                    "schema": safe_validated,
+                    "evaluation": safe_evaluation,
+                    "execution_time": total_time,
                 }
 
             issues = evaluation.get("issues", [])
