@@ -34,12 +34,14 @@ logging.basicConfig(
 )
 
 # ---------------------------------------------------------------------------
-# Configuração Ollama
+# Configuração Ollama — lida do config.py (única fonte da verdade)
 # ---------------------------------------------------------------------------
 
-OLLAMA_URL     = "http://localhost:11434/api/generate"
-OLLAMA_MODEL   = "llama3.2:3b"
-OLLAMA_TIMEOUT = 120
+from config import MODELS, OPTIONS_8B, OLLAMA_URL as _OLLAMA_URL
+
+OLLAMA_URL     = _OLLAMA_URL
+OLLAMA_MODEL   = MODELS["update_schema"]   # llama3.1:8b-instruct-q4_K_M
+OLLAMA_TIMEOUT = 180   # o 8B é mais lento que o 3B — margem extra
 
 # ---------------------------------------------------------------------------
 # Operações válidas
@@ -141,9 +143,8 @@ def _call_ollama(prompt_text: str, temperature: float = 0.1) -> str:
         "prompt": prompt_text,
         "stream": False,
         "options": {
-            "temperature": temperature,
-            "num_predict": 1024,
-            "num_ctx": 2048,
+            **OPTIONS_8B,
+            "temperature": temperature,  # permite override pontual
         },
     }
 
