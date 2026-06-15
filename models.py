@@ -1,12 +1,15 @@
 # ===== models.py =====
 # Camada de armadura Pydantic v2 — AiBizCore
 #
-# PROPÓSITO: Absorver todo o lixo que o Llama 3B produz (null, tipos errados,
-# chaves inexistentes, listas que são dicts, etc.) ANTES de chegar ao
-# aggregator, evaluator ou qualquer handler.
+# PROPÓSITO: Absorver todo o output errático do Llama 3B (null, tipos errados,
+# chaves inexistentes, listas que são dicts, contexto fundido) ANTES de chegar
+# ao aggregator, evaluator ou qualquer handler.
 #
 # REGRA DE OURO: Nenhum componente downstream toca em dicts crus da IA.
-# Tudo passa por aqui primeiro.
+# Toda a validação e coerção acontece aqui, uma vez só.
+#
+# RETROCOMPATIBILIDADE: BlueprintModel.to_dict() devolve o formato exacto
+# que o pipeline legado (cache, storage, frontend, validator) espera.
 
 from __future__ import annotations
 
@@ -15,16 +18,17 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UTILITÁRIOS INTERNOS
+# UTILITÁRIOS INTERNOS — usados pelos validators e pelo aggregator
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _coerce_list(v: Any) -> list:
     """
-    Transforma qualquer coisa numa lista segura.
-    None        → []
-    dict        → [dict]   (o LLM às vezes devolve um objeto em vez de lista)
-    str vazia   → []
-    list        → list (passa direto)
+    Transforma qualquer valor numa lista segura.
+      None        → []
+      dict        → [dict]   (LLM devolve objecto singular em vez de lista)
+      str vazia   → []
+      list        → list     (passa directo)
+      outro       → []
     """
     if v is None:
         return []
@@ -42,9 +46,21 @@ def _safe_str(v: Any, default: str = "") -> str:
     return str(v).strip()
 
 
+# Tipos de campo aceites pelo sistema
 VALID_FIELD_TYPES = {
     "string", "integer", "float", "boolean",
     "date", "datetime", "text",
+}
+
+# Aliases que o LLM usa mas o sistema não — normalizados na entrada
+_FIELD_TYPE_ALIASES: dict[str, str] = {
+    "int": "integer", "number": "integer", "num": "integer",
+    "bigint": "integer", "smallint": "integer",
+    "str": "string", "varchar": "string", "char": "string", "nvarchar": "string",
+    "bool": "boolean", "flag": "boolean",
+    "timestamp": "datetime", "datetime64": "datetime", "datetimetz": "datetime",
+    "decimal": "float", "double": "float", "real": "float", "numeric": "float",
+    "longtext": "text", "clob": "text",
 }
 
 VALID_RELATION_TYPES = {"ONE_TO_MANY", "MANY_TO_MANY"}
@@ -53,9 +69,9 @@ VALID_ACTION_TYPES = {
     "DOMAIN_ACTION", "CRUD_ACTION", "REPORT_ACTION",
     "NOTIFICATION_ACTION", "VALIDATION_ACTION",
     "INTEGRATION_ACTION", "AUTOMATED_ACTION",
-    # legacy
+    # legado — mantidos para retrocompatibilidade com schemas existentes
     "CREATE_OBJECT", "CREATE_RELATION", "ASSIGN_TO_WORKSPACE",
-    # português (vem do generator_actions)
+    # português vindo do generator_actions
     "AÇÃO DE DOMÍNIO", "OPERAÇÃO BÁSICA",
 }
 
@@ -73,22 +89,16 @@ class FieldModel(BaseModel):
     @field_validator("name", mode="before")
     @classmethod
     def clean_name(cls, v: Any) -> str:
-        return _safe_str(v).lower().replace(" ", "_")
+        s = _safe_str(v).lower().replace(" ", "_").replace("-", "_")
+        # remover caracteres inválidos mantendo apenas alfanuméricos e underscore
+        import re
+        return re.sub(r"[^a-z0-9_]", "", s)
 
     @field_validator("type", mode="before")
     @classmethod
     def clean_type(cls, v: Any) -> str:
         raw = _safe_str(v, "string").lower().strip()
-        # normalizar aliases comuns do LLM
-        _aliases = {
-            "int": "integer", "number": "integer", "num": "integer",
-            "str": "string", "varchar": "string", "char": "string",
-            "bool": "boolean", "flag": "boolean",
-            "timestamp": "datetime", "datetime64": "datetime",
-            "decimal": "float", "double": "float", "real": "float",
-            "text": "text", "longtext": "text",
-        }
-        normalized = _aliases.get(raw, raw)
+        normalized = _FIELD_TYPE_ALIASES.get(raw, raw)
         return normalized if normalized in VALID_FIELD_TYPES else "string"
 
     model_config = {"populate_by_name": True}
@@ -111,26 +121,25 @@ class ObjectModel(BaseModel):
     @classmethod
     def coerce_fields(cls, v: Any) -> list:
         raw = _coerce_list(v)
-        # filtrar itens que não são dicts e que não têm "name"
-        return [
-            item for item in raw
-            if isinstance(item, dict) and item.get("name")
-        ]
+        # filtrar itens que não são dicts ou que não têm nome
+        return [item for item in raw if isinstance(item, dict) and item.get("name")]
 
     @model_validator(mode="after")
     def ensure_primary_key(self) -> "ObjectModel":
-        """Garante que existe sempre uma PK canónica."""
+        """Garante que existe sempre uma PK canónica (nomeobjectoid)."""
         if not self.name:
             return self
         pk_name = self.name.lower() + "id"
-        has_pk = any(f.name == pk_name for f in self.fields)
-        if not has_pk:
+        # remover caracteres inválidos do pk_name (mesmo que ObjectModel.name tenha espaços)
+        import re
+        pk_name = re.sub(r"[^a-z0-9_]", "", pk_name)
+        if not any(f.name == pk_name for f in self.fields):
             self.fields.insert(0, FieldModel(name=pk_name, type="integer"))
         return self
 
     @model_validator(mode="after")
     def deduplicate_fields(self) -> "ObjectModel":
-        seen: set = set()
+        seen: set[str] = set()
         unique: List[FieldModel] = []
         for f in self.fields:
             if f.name and f.name not in seen:
@@ -286,7 +295,7 @@ class MetadataModel(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BLUEPRINT (raiz do schema)
+# BLUEPRINT — raiz do schema, Single Source of Truth
 # ─────────────────────────────────────────────────────────────────────────────
 
 class BlueprintModel(BaseModel):
@@ -302,11 +311,12 @@ class BlueprintModel(BaseModel):
         raw = _coerce_list(v)
         result = []
         for item in raw:
-            # Instância já validada (vinda do aggregator) → serializar para dict
+            # instâncias já validadas vindas do aggregator — serializar para dict
             if isinstance(item, ObjectModel):
                 result.append(item.model_dump())
             elif isinstance(item, dict) and item.get("name"):
                 result.append(item)
+            # None e outros tipos são silenciosamente descartados
         return result
 
     @field_validator("relations", mode="before")
@@ -363,9 +373,9 @@ class BlueprintModel(BaseModel):
 
     def to_dict(self) -> dict:
         """
-        Exporta para dict puro com as chaves originais do projeto.
+        Exporta para dict puro com as chaves originais do projecto.
         Usar sempre que precisar de passar o blueprint para código legado
-        (cache, storage, frontend, etc.).
+        (cache, storage, frontend, validator.py, canonical_schema.py, etc.).
         """
         return {
             "objects": [
@@ -416,22 +426,21 @@ class BlueprintModel(BaseModel):
 # FUNÇÃO DE ENTRADA PÚBLICA
 # ─────────────────────────────────────────────────────────────────────────────
 
-def parse_blueprint(raw: dict) -> BlueprintModel:
+def parse_blueprint(raw: Any) -> BlueprintModel:
     """
-    Ponto de entrada único para converter qualquer dict (vindo da IA ou da cache)
+    Ponto de entrada único para converter qualquer valor (dict, None, lixo do LLM)
     num BlueprintModel validado e seguro.
 
-    Nunca levanta exceção: em caso de falha total, devolve um BlueprintModel vazio.
+    Nunca levanta excepção: em caso de falha total, devolve um BlueprintModel vazio.
 
     Uso:
         bp = parse_blueprint(some_dirty_dict)
-        safe_dict = bp.to_dict()
+        safe_dict = bp.to_dict()   # retrocompatível com o pipeline legado
     """
     if not isinstance(raw, dict):
         return BlueprintModel()
     try:
         return BlueprintModel.model_validate(raw)
     except Exception as exc:
-        # Logging defensivo — nunca crashar aqui
         print(f"[models] parse_blueprint WARN: {exc}")
         return BlueprintModel()
