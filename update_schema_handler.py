@@ -13,7 +13,7 @@ import requests
 from typing import Any, Dict, List, Optional, Tuple
 
 from models import (
-    BlueprintModel, FieldModel, ObjectModel,
+    BlueprintModel, FieldModel, ObjectModel, ActionModel,
     RelationModel, WorkspaceModel, parse_blueprint,
 )
 
@@ -54,6 +54,13 @@ VALID_OPS = {
     "ADD_RELATION", "REMOVE_RELATION",
     "ADD_WORKSPACE", "REMOVE_WORKSPACE",
     "ADD_TO_WORKSPACE", "REMOVE_FROM_WORKSPACE",
+    "ADD_ACTION", "REMOVE_ACTION", "RENAME_ACTION",
+    "UPDATE_ACTION_TRIGGER", "UPDATE_ACTION_DESCRIPTION",
+    "ADD_ENTITY_TO_ACTION", "REMOVE_ENTITY_FROM_ACTION",
+}
+VALID_ACTION_TRIGGERS = {
+    "manual", "automated", "scheduled",
+    "automatizado", "agendado"
 }
 
 
@@ -373,6 +380,14 @@ def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
 
             elif "fields" in p:
                 errors.append(f"[op #{i}] ADD_WORKSPACE parece Object.")
+        if op == "ADD_ACTION":
+            p = op_dict.get("action") or {}
+
+            if not isinstance(p, dict):
+                errors.append(f"[op #{i}] ADD_ACTION.action deve ser dict.")
+
+            elif not p.get("name"):
+                errors.append(f"[op #{i}] ADD_ACTION.action precisa de 'name'.")
 
         required: Dict[str, List[str]] = {
             "REMOVE_OBJECT": ["name"],
@@ -386,6 +401,13 @@ def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
             "REMOVE_WORKSPACE": ["name"],
             "ADD_TO_WORKSPACE": ["workspace", "object"],
             "REMOVE_FROM_WORKSPACE": ["workspace", "object"],
+            "ADD_ACTION": ["action"],
+            "REMOVE_ACTION": ["name"],
+            "RENAME_ACTION": ["old_name", "new_name"],
+            "UPDATE_ACTION_TRIGGER": ["action", "trigger"],
+            "UPDATE_ACTION_DESCRIPTION": ["action", "description"],
+            "ADD_ENTITY_TO_ACTION": ["action", "object"],
+            "REMOVE_ENTITY_FROM_ACTION": ["action", "object"],
         }
 
         for key in required.get(op, []):
@@ -454,6 +476,24 @@ def _remove_object_from_relations(bp: BlueprintModel, name: str) -> None:
         r for r in bp.relations
         if r.from_obj.lower() != nl and r.to_obj.lower() != nl
     ]
+def _rename_object_in_actions(bp: BlueprintModel, old: str, new: str) -> None:
+    ol = old.lower()
+
+    for action in bp.actions:
+        action.entities_involved = [
+            new if str(entity).lower() == ol else entity
+            for entity in action.entities_involved
+        ]
+
+
+def _remove_object_from_actions(bp: BlueprintModel, name: str) -> None:
+    nl = name.lower()
+
+    for action in bp.actions:
+        action.entities_involved = [
+            entity for entity in action.entities_involved
+            if str(entity).lower() != nl
+        ]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -530,6 +570,42 @@ def _normalize_type(value: str) -> str:
     }
 
     return aliases.get(raw, "string")
+
+def _normalize_trigger(value: str) -> str:
+    raw = _norm_token(value)
+
+    aliases = {
+        "manual": "manual",
+        "manualmente": "manual",
+        "automated": "automated",
+        "automatico": "automated",
+        "automático": "automated",
+        "automatizado": "automated",
+        "scheduled": "scheduled",
+        "agendado": "scheduled",
+        "periodico": "scheduled",
+        "periódico": "scheduled",
+    }
+
+    return aliases.get(raw, "manual")
+
+
+def _format_action_name(raw: str) -> str:
+    """
+    Converte nomes de ações de linguagem natural para um nome estável.
+    'registar venda' -> 'RegistarVenda'
+    'AprovarTrabalho' -> 'AprovarTrabalho'
+    """
+    raw = str(raw or "").strip().strip("'\"“”‘’")
+
+    if not raw:
+        return ""
+
+    if re.search(r"\s", raw):
+        parts = re.split(r"[\s_\-]+", raw)
+        return "".join(p[:1].upper() + p[1:] for p in parts if p)
+
+    return raw
 
 
 def _field_exists(obj: ObjectModel, field_name: str) -> bool:
@@ -842,7 +918,7 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
     ]
 
     for pattern in rename_object_patterns:
-        for match in re.finditer(pattern, low, re.IGNORECASE):
+        for match in re.finditer(pattern, text, re.IGNORECASE):
             old_name_raw = match.group(1)
             new_name_raw = match.group(2)
 
@@ -863,7 +939,7 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
     remove_object_pattern = (
         r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
         r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)"
-        r"(?!\s+(?:do|da|de|no|na|ao|à)\s+workspace)"
+        r"(?!\s+(?:do|da|de|no|na|ao|à)\s+(?:workspace|ação|acao|action))"
     )
 
     for match in re.finditer(remove_object_pattern, low, re.IGNORECASE):
@@ -1013,6 +1089,198 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
                 "workspace": ws_name,
                 "object": obj_name
             })
+    # ─────────────────────────────────────────────────────────────────────
+    # 14. ADD_ACTION
+    # ─────────────────────────────────────────────────────────────────────
+
+    add_action_patterns = [
+        (
+            r"(?:cria|criar|adiciona|adicionar)\s+"
+            r"(?:uma\s+)?(?:ação|acao|action)\s+(.+?)\s+"
+            r"(?:para|sobre|no|na)\s+(?:o\s+)?(?:objeto\s+)?([a-zA-ZÀ-ÿ0-9_]+)"
+            r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+        ),
+        (
+            r"(?:cria|criar|adiciona|adicionar)\s+"
+        r"(?:uma\s+)?(?:ação|acao|action)\s+(.+?)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    ),
+]
+
+for pattern in add_action_patterns:
+    for match in re.finditer(pattern, text, re.IGNORECASE):
+        action_name = _format_action_name(match.group(1))
+        entity = None
+
+        if len(match.groups()) >= 2:
+            entity = _resolve_object_name(match.group(2))
+
+        if not action_name:
+            continue
+
+        entities = [entity] if entity else []
+
+        _add_op({
+            "op": "ADD_ACTION",
+            "action": {
+                "name": action_name,
+                "type": "DOMAIN_ACTION",
+                "description": f"{action_name} no sistema",
+                "trigger": "manual",
+                "entities_involved": entities,
+                "steps": [
+                    "validar dados necessários",
+                    "executar ação",
+                    "confirmar resultado"
+                ],
+                "preconditions": [
+                    f"{entity} deve existir" if entity else "condições necessárias devem estar reunidas"
+                ],
+                "postconditions": [
+                    "ação concluída"
+                ]
+            }
+        })
+
+# ─────────────────────────────────────────────────────────────────────
+# 15. REMOVE_ACTION
+# ─────────────────────────────────────────────────────────────────────
+
+remove_action_pattern = (
+    r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
+    r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)"
+    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+)
+
+for match in re.finditer(remove_action_pattern, text, re.IGNORECASE):
+    action_name = _resolve_action_name(match.group(1))
+
+    if action_name:
+        _add_op({
+            "op": "REMOVE_ACTION",
+            "name": action_name
+        })
+
+# ─────────────────────────────────────────────────────────────────────
+# 16. RENAME_ACTION
+# ─────────────────────────────────────────────────────────────────────
+
+rename_action_patterns = [
+    (
+        r"(?:renomeia|renomear)\s+"
+        r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)\s+"
+        r"(?:para|por)\s+(.+?)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    ),
+    (
+        r"(?:troca|trocar|substitui|substituir)\s+"
+        r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)\s+"
+        r"(?:para|por)\s+(.+?)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    ),
+]
+
+for pattern in rename_action_patterns:
+    for match in re.finditer(pattern, text, re.IGNORECASE):
+        old_name = _resolve_action_name(match.group(1))
+        new_name = _format_action_name(match.group(2))
+
+        if old_name and new_name:
+            _add_op({
+                "op": "RENAME_ACTION",
+                "old_name": old_name,
+                "new_name": new_name
+            })
+
+# ─────────────────────────────────────────────────────────────────────
+# 17. UPDATE_ACTION_TRIGGER
+# ─────────────────────────────────────────────────────────────────────
+
+update_action_trigger_pattern = (
+    r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
+    r"(?:o\s+)?trigger\s+(?:da|de)\s+"
+    r"(?:ação|acao|action)\s+(.+?)\s+"
+    r"(?:para|como)\s+([a-zA-ZÀ-ÿ0-9_]+)"
+    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+)
+
+for match in re.finditer(update_action_trigger_pattern, text, re.IGNORECASE):
+    action_name = _resolve_action_name(match.group(1))
+    trigger = _normalize_trigger(match.group(2))
+
+    if action_name:
+        _add_op({
+            "op": "UPDATE_ACTION_TRIGGER",
+            "action": action_name,
+            "trigger": trigger
+        })
+
+# ─────────────────────────────────────────────────────────────────────
+# 18. UPDATE_ACTION_DESCRIPTION
+# ─────────────────────────────────────────────────────────────────────
+
+update_action_description_pattern = (
+    r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
+    r"(?:a\s+)?(?:descrição|descricao)\s+(?:da|de)\s+"
+    r"(?:ação|acao|action)\s+(.+?)\s+"
+    r"(?:para|como)\s+(.+?)"
+    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+)
+
+for match in re.finditer(update_action_description_pattern, text, re.IGNORECASE):
+    action_name = _resolve_action_name(match.group(1))
+    description = str(match.group(2)).strip().strip("'\"“”‘’")
+
+    if action_name and description:
+        _add_op({
+            "op": "UPDATE_ACTION_DESCRIPTION",
+            "action": action_name,
+            "description": description
+        })
+
+# ─────────────────────────────────────────────────────────────────────
+# 19. ADD_ENTITY_TO_ACTION
+# ─────────────────────────────────────────────────────────────────────
+
+add_entity_to_action_pattern = (
+    r"(?:adiciona|adicionar|mete|coloca)\s+"
+    r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
+    r"(?:à|a|na|no)\s+(?:ação|acao|action)\s+(.+?)"
+    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+)
+
+for match in re.finditer(add_entity_to_action_pattern, text, re.IGNORECASE):
+    obj_name = _resolve_object_name(match.group(1))
+    action_name = _resolve_action_name(match.group(2))
+
+    if obj_name and action_name:
+        _add_op({
+            "op": "ADD_ENTITY_TO_ACTION",
+            "action": action_name,
+            "object": obj_name
+        })
+
+# ─────────────────────────────────────────────────────────────────────
+# 20. REMOVE_ENTITY_FROM_ACTION
+# ─────────────────────────────────────────────────────────────────────
+
+remove_entity_from_action_pattern = (
+    r"(?:remove|remover|retira|tirar)\s+"
+    r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
+    r"(?:da|de|na|no)\s+(?:ação|acao|action)\s+(.+?)"
+    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+)
+
+for match in re.finditer(remove_entity_from_action_pattern, text, re.IGNORECASE):
+    obj_name = _resolve_object_name(match.group(1))
+    action_name = _resolve_action_name(match.group(2))
+
+    if obj_name and action_name:
+        _add_op({
+            "op": "REMOVE_ENTITY_FROM_ACTION",
+            "action": action_name,
+            "object": obj_name
+        })
 
     return operations
 
@@ -1051,6 +1319,7 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
         else:
             _remove_object_from_all_workspaces(bp, name)
             _remove_object_from_relations(bp, name)
+            _remove_object_from_actions(bp, name)
 
     elif op == "RENAME_OBJECT":
         old = op_dict["old_name"]
@@ -1068,6 +1337,7 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
             obj.name = new
             _rename_object_in_workspaces(bp, old, new)
             _rename_object_in_relations(bp, old, new)
+            _rename_object_in_actions(bp, old, new)
 
     elif op == "ADD_FIELD":
         obj = _find_object(bp, op_dict["object"])
@@ -1281,6 +1551,121 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
                 w.append(
                     f"REMOVE_FROM_WORKSPACE: '{op_dict['object']}' não encontrado "
                     f"em '{op_dict['workspace']}'."
+                )
+    elif op == "ADD_ACTION":
+        p = op_dict.get("action") or {}
+
+        if not isinstance(p, dict):
+            w.append("ADD_ACTION: payload deve ser dict.")
+            return w
+
+        try:
+            action = ActionModel.model_validate(p)
+        except Exception as e:
+            w.append(f"ADD_ACTION: payload inválido — {e}")
+            return w
+
+        if _find_action(bp, action.name):
+            w.append(f"ADD_ACTION: '{action.name}' já existe.")
+        else:
+            valid_objects = {o.name.lower(): o.name for o in bp.objects}
+            normalized_entities = []
+
+            for entity in action.entities_involved:
+                canonical = valid_objects.get(str(entity).lower())
+
+                if canonical and canonical not in normalized_entities:
+                    normalized_entities.append(canonical)
+
+            action.entities_involved = normalized_entities
+            bp.actions.append(action)
+
+    elif op == "REMOVE_ACTION":
+        name = op_dict["name"]
+        target = _norm_action_key(name)
+        n0 = len(bp.actions)
+
+        bp.actions = [
+            action for action in bp.actions
+            if _norm_action_key(action.name) != target
+        ]
+
+        if len(bp.actions) == n0:
+            w.append(f"REMOVE_ACTION: '{name}' não encontrada.")
+
+    elif op == "RENAME_ACTION":
+        old = op_dict["old_name"]
+        new = op_dict["new_name"]
+
+        action = _find_action(bp, old)
+
+        if action is None:
+            w.append(f"RENAME_ACTION: '{old}' não encontrada.")
+
+        elif _find_action(bp, new):
+            w.append(f"RENAME_ACTION: '{new}' já existe.")
+
+        else:
+            action.name = new
+
+    elif op == "UPDATE_ACTION_TRIGGER":
+        action_name = op_dict["action"]
+        action = _find_action(bp, action_name)
+
+        if action is None:
+            w.append(f"UPDATE_ACTION_TRIGGER: '{action_name}' não encontrada.")
+
+        else:
+            action.trigger = _normalize_trigger(op_dict["trigger"])
+
+    elif op == "UPDATE_ACTION_DESCRIPTION":
+        action_name = op_dict["action"]
+        action = _find_action(bp, action_name)
+
+        if action is None:
+            w.append(f"UPDATE_ACTION_DESCRIPTION: '{action_name}' não encontrada.")
+
+        else:
+            action.description = str(op_dict["description"]).strip()
+
+    elif op == "ADD_ENTITY_TO_ACTION":
+        action_name = op_dict["action"]
+        object_name = op_dict["object"]
+
+        action = _find_action(bp, action_name)
+        obj = _find_object(bp, object_name)
+
+        if action is None:
+            w.append(f"ADD_ENTITY_TO_ACTION: ação '{action_name}' não encontrada.")
+
+        elif obj is None:
+            w.append(f"ADD_ENTITY_TO_ACTION: objeto '{object_name}' não encontrado.")
+
+        elif not any(str(entity).lower() == obj.name.lower() for entity in action.entities_involved):
+            action.entities_involved.append(obj.name)
+
+    elif op == "REMOVE_ENTITY_FROM_ACTION":
+        action_name = op_dict["action"]
+        object_name = op_dict["object"]
+
+        action = _find_action(bp, action_name)
+
+        if action is None:
+            w.append(f"REMOVE_ENTITY_FROM_ACTION: ação '{action_name}' não encontrada.")
+
+        else:
+            ol = str(object_name).lower()
+            n0 = len(action.entities_involved)
+
+            action.entities_involved = [
+                entity for entity in action.entities_involved
+                if str(entity).lower() != ol
+            ]
+
+            if len(action.entities_involved) == n0:
+                w.append(
+                    f"REMOVE_ENTITY_FROM_ACTION: objeto '{object_name}' não encontrado "
+                    f"na ação '{action_name}'."
                 )
 
     return w
