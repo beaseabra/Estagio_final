@@ -59,7 +59,7 @@ OLLAMA_TIMEOUT = 180
 VALID_OPS = {
     "ADD_OBJECT", "REMOVE_OBJECT", "RENAME_OBJECT",
     "ADD_FIELD", "REMOVE_FIELD", "RENAME_FIELD", "RETYPE_FIELD",
-    "ADD_RELATION", "REMOVE_RELATION",
+    "ADD_RELATION", "REMOVE_RELATION", "UPDATE_RELATION_TYPE",
     "ADD_WORKSPACE", "REMOVE_WORKSPACE",
     "ADD_TO_WORKSPACE", "REMOVE_FROM_WORKSPACE",
     "ADD_ACTION", "REMOVE_ACTION", "RENAME_ACTION",
@@ -350,6 +350,7 @@ def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
         "RETYPE_FIELD": ["object", "field_name", "new_type"],
         "ADD_RELATION": ["relation"],
         "REMOVE_RELATION": ["name"],
+        "UPDATE_RELATION_TYPE": ["from", "to", "type"],
         "ADD_WORKSPACE": ["workspace"],
         "REMOVE_WORKSPACE": ["name"],
         "ADD_TO_WORKSPACE": ["workspace", "object"],
@@ -1225,7 +1226,30 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
                 "action": action_name,
                 "object": obj_name,
             })
+    
+    # ─────────────────────────────────────────────────────────────────────
+    # UPDATE_RELATION_TYPE
+    # ─────────────────────────────────────────────────────────────────────
 
+    update_relation_type_pattern = (
+        r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
+        r"(?:o\s+)?tipo\s+(?:da\s+)?(?:relação|relacao)\s+entre\s+"
+        r"([a-zA-ZÀ-ÿ0-9_]+)\s+e\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
+        r"(?:para|como)\s+(ONE_TO_MANY|MANY_TO_MANY)"
+    )
+
+    for match in re.finditer(update_relation_type_pattern, text, re.IGNORECASE):
+        from_obj = _resolve_object_name(match.group(1))
+        to_obj = _resolve_object_name(match.group(2))
+        rel_type = match.group(3).upper()
+
+        if from_obj and to_obj and from_obj != to_obj:
+            _add_op({
+                "op": "UPDATE_RELATION_TYPE",
+                "from": from_obj,
+                "to": to_obj,
+                "type": rel_type
+            })
     return operations
 
 
@@ -1357,6 +1381,7 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
             tgt.type = new_type
 
+    
     elif op == "ADD_RELATION":
         rp = op_dict.get("relation") or {}
 
@@ -1372,17 +1397,54 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         if not _find_object(bp, rel.from_obj):
             w.append(f"ADD_RELATION: '{rel.from_obj}' não encontrado.")
+
         elif not _find_object(bp, rel.to_obj):
             w.append(f"ADD_RELATION: '{rel.to_obj}' não encontrado.")
-        elif any(
-            r.from_obj.lower() == rel.from_obj.lower()
-            and r.to_obj.lower() == rel.to_obj.lower()
-            for r in bp.relations
-        ):
-            w.append(f"ADD_RELATION: '{rel.from_obj}→{rel.to_obj}' já existe.")
-        else:
-            bp.relations.append(rel)
 
+        else:
+            existing = next(
+                (
+                    r for r in bp.relations
+                    if r.from_obj.lower() == rel.from_obj.lower()
+                    and r.to_obj.lower() == rel.to_obj.lower()
+                ),
+                None
+            )
+
+            if existing:
+                if existing.type != rel.type:
+                    existing.type = rel.type
+                    w.append(
+                        f"ADD_RELATION: '{rel.from_obj}→{rel.to_obj}' já existia; tipo atualizado para {rel.type}."
+                    )
+                else:
+                    w.append(f"ADD_RELATION: '{rel.from_obj}→{rel.to_obj}' já existe.")
+            else:
+                bp.relations.append(rel)
+
+    elif op == "UPDATE_RELATION_TYPE":
+        from_name = op_dict["from"]
+        to_name = op_dict["to"]
+        new_type = str(op_dict["type"]).upper()
+
+        if new_type not in {"ONE_TO_MANY", "MANY_TO_MANY"}:
+            w.append(f"UPDATE_RELATION_TYPE: tipo inválido '{new_type}'.")
+            return w
+
+        rel = next(
+            (
+                r for r in bp.relations
+                if r.from_obj.lower() == from_name.lower()
+                and r.to_obj.lower() == to_name.lower()
+            ),
+            None
+        )
+
+        if rel is None:
+            w.append(f"UPDATE_RELATION_TYPE: relação '{from_name}→{to_name}' não encontrada.")
+        else:
+            rel.type = new_type
+            
     elif op == "REMOVE_RELATION":
         name = op_dict["name"]
         n0 = len(bp.relations)
