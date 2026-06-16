@@ -65,6 +65,10 @@
                     <i class="fa-solid fa-cloud-arrow-up"></i> Guardar na Memória
                 </button>
                 
+                <button id="db-preview-btn" class="hidden items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-all shadow-lg shadow-indigo-950/20">
+                    <i class="fa-solid fa-database"></i> Preview BD
+                </button>
+
                 <button id="approve-btn" class="hidden items-center px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg transition-all shadow-lg shadow-emerald-950/20">
                     <i class="fa-solid fa-download mr-2"></i> Download Blueprint
                 </button>
@@ -88,9 +92,38 @@
                     <div id="objects-grid" class="grid grid-cols-2 gap-8"></div>
                 </div>
 
+                <div id="relations-section" class="hidden">
+                    <div class="section-header"><i class="fa-solid fa-link text-indigo-400"></i><span>Relações entre Objetos</span></div>
+                    <div id="relations-grid" class="grid grid-cols-2 gap-8"></div>
+                </div>
+
                 <div id="actions-section" class="hidden">
                     <div class="section-header"><i class="fa-solid fa-cogs text-amber-400"></i><span>Processos e Ações</span></div>
                     <div id="actions-grid" class="grid grid-cols-2 gap-8"></div>
+                </div>
+
+                <div id="db-preview-section" class="hidden">
+                    <div class="section-header"><i class="fa-solid fa-database text-emerald-400"></i><span>Preview Base de Dados / SQL Server</span></div>
+                    <div id="db-preview-grid" class="grid grid-cols-2 gap-8 mb-8"></div>
+                    <div id="db-sql-card" class="component-card border-l-4 border-l-emerald-600 hidden">
+                        <div class="flex items-center justify-between gap-4 mb-4">
+                            <div class="flex items-center gap-2.5">
+                                <i class="fa-solid fa-code text-emerald-400"></i>
+                                <h3 class="font-bold text-zinc-100">SQL Preview</h3>
+                            </div>
+                            <button id="copy-sql-btn" class="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs font-medium rounded border border-zinc-800 transition-colors">
+                                Copiar SQL
+                            </button>
+                        </div>
+                        <pre id="db-sql-preview" class="bg-zinc-950 border border-zinc-900 rounded-lg p-4 text-[11px] leading-relaxed text-zinc-300 overflow-x-auto whitespace-pre-wrap font-mono"></pre>
+                    </div>
+                    <div id="db-warnings-card" class="component-card border-l-4 border-l-yellow-600 hidden mt-8">
+                        <div class="flex items-center gap-2.5 mb-4">
+                            <i class="fa-solid fa-triangle-exclamation text-yellow-400"></i>
+                            <h3 class="font-bold text-zinc-100">Avisos</h3>
+                        </div>
+                        <div id="db-warnings-list" class="space-y-2"></div>
+                    </div>
                 </div>
 
                 <div id="fallback-zone" class="hidden"></div>
@@ -101,6 +134,7 @@
     <script>
         const API_URL = "http://127.0.0.1:8000/api/prompt";
         const CACHE_URL = "http://127.0.0.1:8000/api/save_cache"; // Nova Rota!
+        const DB_PREVIEW_URL = "http://127.0.0.1:8000/api/db-preview";
         
         let lastGeneratedSchema = null;
         let chatHistory = []; 
@@ -109,6 +143,7 @@
         const input = document.getElementById('prompt-input');
         const approveBtn = document.getElementById('approve-btn');
         const saveCacheBtn = document.getElementById('save-cache-btn'); // Novo botão
+        const dbPreviewBtn = document.getElementById('db-preview-btn');
         const placeholder = document.getElementById('canvas-placeholder');
         const renderZone = document.getElementById('render-zone');
 
@@ -116,8 +151,16 @@
         const workspacesGrid = document.getElementById('workspaces-grid');
         const objectsSec = document.getElementById('objects-section');
         const objectsGrid = document.getElementById('objects-grid');
+        const relationsSec = document.getElementById('relations-section');
+        const relationsGrid = document.getElementById('relations-grid');
         const actionsSec = document.getElementById('actions-section');
         const actionsGrid = document.getElementById('actions-grid');
+        const dbPreviewSec = document.getElementById('db-preview-section');
+        const dbPreviewGrid = document.getElementById('db-preview-grid');
+        const dbSqlCard = document.getElementById('db-sql-card');
+        const dbSqlPreview = document.getElementById('db-sql-preview');
+        const dbWarningsCard = document.getElementById('db-warnings-card');
+        const dbWarningsList = document.getElementById('db-warnings-list');
         const fallbackZone = document.getElementById('fallback-zone');
 
         input.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleSend(); });
@@ -125,6 +168,8 @@
         approveBtn.addEventListener('click', handleApprove);
         document.getElementById('clear-btn').addEventListener('click', handleClear);
         saveCacheBtn.addEventListener('click', handleSaveCache); // Novo evento
+        dbPreviewBtn.addEventListener('click', handleDBPreview);
+        document.addEventListener('click', handleCopySQLClick);
 
         // DICIONÁRIO DE TRADUÇÃO TÉCNICA
         const ptMap = {
@@ -139,6 +184,25 @@
             let t = termo.toString().toUpperCase().trim();
             return ptMap[t] || termo;
         }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function getCurrentSchemaPayload() {
+            if (!lastGeneratedSchema) return null;
+            return lastGeneratedSchema.schema
+                || lastGeneratedSchema.system
+                || (lastGeneratedSchema.data && lastGeneratedSchema.data.objects ? lastGeneratedSchema.data : null)
+                || lastGeneratedSchema.data
+                || lastGeneratedSchema;
+        }
+
 
         async function handleSend() {
             const prompt = input.value.trim(); if (!prompt) return;
@@ -187,13 +251,154 @@
             }
         }
 
+
+        async function handleDBPreview() {
+            const currentSchemaPayload = getCurrentSchemaPayload();
+
+            if (!currentSchemaPayload) {
+                appendMessage('ai', `<div class="flex items-center gap-2"><i class="fa-solid fa-circle-exclamation text-yellow-500"></i> Primeiro gera um esquema antes de pedir o preview da base de dados.</div>`);
+                return;
+            }
+
+            const originalHTML = dbPreviewBtn.innerHTML;
+            dbPreviewBtn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> A gerar...';
+
+            try {
+                const response = await fetch(DB_PREVIEW_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ schema_data: currentSchemaPayload })
+                });
+
+                const result = await response.json();
+
+                if (!response.ok || result.success === false) {
+                    throw new Error(result.detail || result.error || "Erro ao gerar preview.");
+                }
+
+                renderDBPreview(result);
+                appendMessage('ai', `<div class="flex items-center gap-2"><i class="fa-solid fa-database text-emerald-500"></i> Preview da base de dados gerado com sucesso.</div>`);
+            } catch (e) {
+                appendMessage('ai', `<div class="flex items-center gap-2"><i class="fa-solid fa-circle-exclamation text-red-500"></i> Erro ao gerar preview da base de dados.</div>`);
+                console.error(e);
+            } finally {
+                dbPreviewBtn.innerHTML = originalHTML;
+            }
+        }
+
+        function renderDBPreview(preview) {
+            if (!preview || preview.success === false) return;
+
+            dbPreviewSec.classList.remove('hidden');
+            dbPreviewGrid.innerHTML = "";
+
+            const tables = Array.isArray(preview.tables) ? preview.tables : [];
+            const relations = Array.isArray(preview.relations) ? preview.relations : [];
+            const warnings = Array.isArray(preview.warnings) ? preview.warnings : [];
+            const sqlPreview = Array.isArray(preview.sql_preview) ? preview.sql_preview.join("\\n\\n") : "";
+
+            dbPreviewGrid.insertAdjacentHTML('beforeend', `
+                <div class="component-card border-l-4 border-l-emerald-600">
+                    <div class="flex items-center gap-2.5 mb-3">
+                        <i class="fa-solid fa-server text-emerald-400"></i>
+                        <h3 class="font-bold text-zinc-100">Target</h3>
+                    </div>
+                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">Formato gerado para SQL Server Management Studio.</p>
+                    <div class="flex flex-wrap gap-2">
+                        <span class="px-2 py-0.5 bg-zinc-900 text-zinc-300 text-[11px] rounded border border-zinc-800 font-mono">${escapeHtml(preview.database_target || 'sql_server')}</span>
+                        <span class="px-2 py-0.5 bg-zinc-900 text-zinc-300 text-[11px] rounded border border-zinc-800 font-mono">prefix ${escapeHtml(preview.table_prefix || 'CU')}</span>
+                    </div>
+                </div>
+            `);
+
+            dbPreviewGrid.insertAdjacentHTML('beforeend', `
+                <div class="component-card border-l-4 border-l-blue-600">
+                    <div class="flex items-center gap-2.5 mb-3">
+                        <i class="fa-solid fa-table text-blue-400"></i>
+                        <h3 class="font-bold text-zinc-100">Tabelas Geradas</h3>
+                    </div>
+                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">${tables.length} tabela(s), usando apenas objetos e relações.</p>
+                    <div class="flex flex-wrap gap-2">
+                        ${tables.map(t => `<span class="px-2 py-0.5 bg-zinc-900 text-blue-300 text-[11px] rounded border border-zinc-800 font-mono">${escapeHtml(t.table_name)}</span>`).join('')}
+                    </div>
+                </div>
+            `);
+
+            dbPreviewGrid.insertAdjacentHTML('beforeend', `
+                <div class="component-card border-l-4 border-l-indigo-600">
+                    <div class="flex items-center gap-2.5 mb-3">
+                        <i class="fa-solid fa-link text-indigo-400"></i>
+                        <h3 class="font-bold text-zinc-100">Relações DB</h3>
+                    </div>
+                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">${relations.length} relação(ões) geradas via stored procedure.</p>
+                    <div class="space-y-2">
+                        ${relations.slice(0, 6).map(r => `
+                            <div class="text-[11px] text-zinc-400 font-mono bg-zinc-950 border border-zinc-900 rounded p-2">
+                                ${escapeHtml(r.from_table)}.${escapeHtml(r.from_field)} → ${escapeHtml(r.to_table)}
+                            </div>
+                        `).join('')}
+                        ${relations.length > 6 ? `<div class="text-[11px] text-zinc-600">+ ${relations.length - 6} relações no SQL preview</div>` : ''}
+                    </div>
+                </div>
+            `);
+
+            dbPreviewGrid.insertAdjacentHTML('beforeend', `
+                <div class="component-card border-l-4 border-l-purple-600">
+                    <div class="flex items-center gap-2.5 mb-3">
+                        <i class="fa-solid fa-filter text-purple-400"></i>
+                        <h3 class="font-bold text-zinc-100">Secções Ignoradas</h3>
+                    </div>
+                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">A base de dados usa apenas objetos e relações.</p>
+                    <div class="flex flex-wrap gap-2">
+                        ${(preview.ignored_blueprint_sections || []).map(x => `<span class="px-2 py-0.5 bg-zinc-900 text-zinc-500 text-[11px] rounded border border-zinc-800 font-mono">${escapeHtml(x)}</span>`).join('')}
+                    </div>
+                </div>
+            `);
+
+            if (sqlPreview) {
+                dbSqlPreview.textContent = sqlPreview;
+                dbSqlCard.classList.remove('hidden');
+            } else {
+                dbSqlPreview.textContent = "";
+                dbSqlCard.classList.add('hidden');
+            }
+
+            if (warnings.length > 0) {
+                dbWarningsList.innerHTML = warnings.map(w => `
+                    <div class="text-xs text-yellow-300 bg-yellow-500/5 border border-yellow-500/10 rounded-lg px-3 py-2">
+                        ${escapeHtml(w)}
+                    </div>
+                `).join('');
+                dbWarningsCard.classList.remove('hidden');
+            } else {
+                dbWarningsList.innerHTML = "";
+                dbWarningsCard.classList.add('hidden');
+            }
+
+            dbPreviewSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function handleCopySQLClick(e) {
+            if (!e.target || e.target.id !== 'copy-sql-btn') return;
+
+            const sql = dbSqlPreview.textContent || '';
+            if (!sql) return;
+
+            navigator.clipboard.writeText(sql).then(() => {
+                const btn = document.getElementById('copy-sql-btn');
+                const old = btn.innerHTML;
+                btn.innerHTML = 'Copiado';
+                setTimeout(() => { btn.innerHTML = old; }, 1500);
+            });
+        }
+
         // ==========================================
         // NOVA FUNÇÃO: Guardar no Backend (Cache)
         // ==========================================
         async function handleSaveCache() {
             if (!lastGeneratedSchema) return;
 
-            let currentSchemaPayload = lastGeneratedSchema.schema || lastGeneratedSchema.system || (lastGeneratedSchema.data && lastGeneratedSchema.data.objects ? lastGeneratedSchema.data : null) || lastGeneratedSchema.data || lastGeneratedSchema;
+            let currentSchemaPayload = getCurrentSchemaPayload();
             
             const originalHTML = saveCacheBtn.innerHTML;
             saveCacheBtn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> A guardar...';
@@ -278,6 +483,29 @@
             });
         }
 
+        function drawRelations(list) {
+            if (!list || list.length === 0) return;
+            relationsSec.classList.remove('hidden');
+
+            list.forEach(rel => {
+                const fromObj = rel.from || rel.from_obj || rel.source || '';
+                const toObj = rel.to || rel.to_obj || rel.target || '';
+                const relType = rel.type || 'ONE_TO_MANY';
+                const relLabel = rel.label || '';
+
+                relationsGrid.insertAdjacentHTML('beforeend', `
+                    <div class="component-card border-l-4 border-l-indigo-600">
+                        <div class="flex items-center gap-2.5 mb-3">
+                            <i class="fa-solid fa-link text-indigo-400"></i>
+                            <h3 class="font-bold text-zinc-100">${fromObj} <span class="text-zinc-600 mx-1">→</span> ${toObj}</h3>
+                        </div>
+                        ${relLabel ? `<p class="text-xs text-zinc-400 mb-2 leading-relaxed">${relLabel}</p>` : ''}
+                        <span class="px-2 py-0.5 bg-zinc-900 text-zinc-500 text-[10px] rounded font-mono border border-zinc-800">${relType}</span>
+                    </div>
+                `);
+            });
+        }
+
         function renderCanvas(result) {
             placeholder.classList.add('hidden');
             renderZone.classList.remove('hidden');
@@ -285,10 +513,15 @@
             // Mostrar os dois botões!
             approveBtn.classList.remove('hidden'); approveBtn.classList.add('flex');
             saveCacheBtn.classList.remove('hidden'); saveCacheBtn.classList.add('flex');
+            dbPreviewBtn.classList.remove('hidden'); dbPreviewBtn.classList.add('flex');
 
             workspacesGrid.innerHTML = ""; workspacesSec.classList.add('hidden');
             objectsGrid.innerHTML = ""; objectsSec.classList.add('hidden');
+            relationsGrid.innerHTML = ""; relationsSec.classList.add('hidden');
             actionsGrid.innerHTML = ""; actionsSec.classList.add('hidden');
+            dbPreviewGrid.innerHTML = ""; dbPreviewSec.classList.add('hidden');
+            dbSqlPreview.textContent = ""; dbSqlCard.classList.add('hidden');
+            dbWarningsList.innerHTML = ""; dbWarningsCard.classList.add('hidden');
             fallbackZone.innerHTML = ""; fallbackZone.classList.add('hidden');
 
             const schema = result.schema || result.system || (result.data && result.data.objects ? result.data : null) || result.data || result;
@@ -325,6 +558,10 @@
                         <div class="space-y-1">${fieldsHtml}</div>
                     </div>
                 `);
+            }
+
+            if (schema.relations && schema.relations.length > 0) {
+                drawRelations(schema.relations);
             }
 
             if (schema.actions && schema.actions.length > 0) {
