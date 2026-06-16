@@ -14,7 +14,6 @@ VALID_ACTION_TYPES = {
     "VALIDATION_ACTION",
     "INTEGRATION_ACTION",
     "AUTOMATED_ACTION",
-    # Legacy
     "CREATE_OBJECT",
     "CREATE_RELATION",
     "ASSIGN_TO_WORKSPACE"
@@ -30,16 +29,13 @@ DOMAIN_RELATION_SPECS = [
     ("Encomenda", "Pagamento", "ONE_TO_MANY"),
     ("Categoria", "Produto", "ONE_TO_MANY"),
     ("Fornecedor", "Produto", "MANY_TO_MANY"),
-
     ("Paciente", "Consulta", "ONE_TO_MANY"),
     ("Medico", "Consulta", "ONE_TO_MANY"),
     ("Médico", "Consulta", "ONE_TO_MANY"),
-
     ("Aluno", "Inscricao", "ONE_TO_MANY"),
     ("Aluno", "Inscrição", "ONE_TO_MANY"),
     ("Curso", "Inscricao", "ONE_TO_MANY"),
     ("Curso", "Inscrição", "ONE_TO_MANY"),
-
     ("Cliente", "Conta", "ONE_TO_MANY"),
     ("Conta", "Transacao", "ONE_TO_MANY"),
     ("Conta", "Transação", "ONE_TO_MANY"),
@@ -75,6 +71,18 @@ def _normalize_field_name(name: str) -> str:
     name = re.sub(r"[\s\-]+", "_", name)
     name = re.sub(r"[^a-z0-9_]", "", name)
     return name
+
+
+def _fix_common_field_name(name: str) -> str:
+    fixes = {
+        "preo": "preco",
+        "mtodo": "metodo",
+        "descrio": "descricao",
+        "criadoem": "created_at",
+        "atualizadoem": "updated_at"
+    }
+
+    return fixes.get(name, name)
 
 
 def _as_list(value):
@@ -272,13 +280,6 @@ def hard_validate(blueprint: dict) -> dict:
             "fixed_blueprint": blueprint
         }
 
-    if len(objects) < 2:
-        warnings.append(f"Too few objects: {len(objects)}")
-
-    # =========================
-    # OBJECTS
-    # =========================
-
     fixed_objects = []
     object_names = set()
 
@@ -304,7 +305,7 @@ def hard_validate(blueprint: dict) -> dict:
         pk_name = _canonical_token(name) + "id"
 
         has_pk = any(
-            _normalize_field_name(f.get("name", "")) == pk_name
+            _fix_common_field_name(_normalize_field_name(f.get("name", ""))) == pk_name
             for f in fields
             if isinstance(f, dict)
         )
@@ -320,6 +321,7 @@ def hard_validate(blueprint: dict) -> dict:
                 continue
 
             fname = _normalize_field_name(field.get("name", ""))
+            fname = _fix_common_field_name(fname)
 
             if not fname or fname in seen_field_names:
                 continue
@@ -330,6 +332,12 @@ def hard_validate(blueprint: dict) -> dict:
 
             if ftype not in VALID_FIELD_TYPES:
                 ftype = _infer_type(fname)
+
+            if fname == "preco":
+                ftype = "float"
+
+            if fname == "metodo":
+                ftype = "string"
 
             fixed_fields.append({
                 "name": fname,
@@ -383,12 +391,9 @@ def hard_validate(blueprint: dict) -> dict:
             name_by_token
         )
 
-        # Relações com suporte são reconstruídas de forma controlada abaixo.
         if _is_support_entity(from_obj) or _is_support_entity(to_obj):
             continue
 
-        # Em domínios reconhecidos, rejeitar relações não canónicas.
-        # Isto impede Produto -> Pagamento, Pagamento -> Cliente, etc.
         if known_context and not is_canonical:
             continue
 
@@ -401,10 +406,7 @@ def hard_validate(blueprint: dict) -> dict:
             label
         )
 
-    # =========================
-    # AUTO-FIX CANONICAL DOMAIN RELATIONS
-    # =========================
-
+    # Auto-fix das relações canónicas
     for left, right, rel_type in DOMAIN_RELATION_SPECS:
         left_token = _canonical_token(left)
         right_token = _canonical_token(right)
@@ -419,10 +421,7 @@ def hard_validate(blueprint: dict) -> dict:
                 ""
             )
 
-    # =========================
-    # CONTROLLED SUPPORT RELATIONS
-    # =========================
-
+    # Relações controladas para entidades de suporte
     main_entity = _choose_main_entity(object_names_list)
 
     historico = name_by_token.get("historico")
