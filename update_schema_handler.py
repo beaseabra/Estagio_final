@@ -1,32 +1,41 @@
 # ===== handlers/update_schema_handler.py =====
-# v4.3 — Compatibilidade total com /api/generate + /api/chat
-#         Parser robusto para Llama 3.1 8B (<think> tags, texto livre)
-#         Operações simples determinísticas antes do LLM:
-#         ADD_FIELD, REMOVE_FIELD, RENAME_FIELD, RETYPE_FIELD, ADD_OBJECT
+# v4.5 — Update schema robusto para AiBizCore
+#         Compatível com /api/generate + /api/chat
+#         Parser robusto para outputs LLM (<think>, markdown, texto livre)
+#         Operações determinísticas antes do LLM:
+#         Objects, fields, relations, workspaces e actions
 
 from __future__ import annotations
 
 import json
 import logging
 import re
-import requests
 from typing import Any, Dict, List, Optional, Tuple
 
+import requests
+
 from models import (
-    BlueprintModel, FieldModel, ObjectModel, ActionModel,
-    RelationModel, WorkspaceModel, parse_blueprint,
+    BlueprintModel,
+    FieldModel,
+    ObjectModel,
+    RelationModel,
+    WorkspaceModel,
+    ActionModel,
+    parse_blueprint,
 )
+
 
 logger = logging.getLogger("update_schema_handler")
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(levelname)s — %(message)s")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CONFIGURAÇÃO — lida do config.py
+# CONFIGURAÇÃO
 # ─────────────────────────────────────────────────────────────────────────────
 
 try:
     from config import MODELS, OPTIONS, OPTIONS_8B, OLLAMA_URL as _CFG_URL, MODEL_TIER
+
     OLLAMA_MODEL = MODELS.get("update_schema", MODELS.get("router", "llama3.2:3b"))
     OLLAMA_OPTIONS = OPTIONS_8B if MODEL_TIER == "8b" else OPTIONS
     OLLAMA_BASE = _CFG_URL
@@ -40,7 +49,6 @@ except ImportError:
 _BASE = OLLAMA_BASE.replace("/api/generate", "").replace("/api/chat", "")
 ENDPOINT_GENERATE = f"{_BASE}/api/generate"
 ENDPOINT_CHAT = f"{_BASE}/api/chat"
-
 OLLAMA_TIMEOUT = 180
 
 
@@ -58,43 +66,41 @@ VALID_OPS = {
     "UPDATE_ACTION_TRIGGER", "UPDATE_ACTION_DESCRIPTION",
     "ADD_ENTITY_TO_ACTION", "REMOVE_ENTITY_FROM_ACTION",
 }
-VALID_ACTION_TRIGGERS = {
-    "manual", "automated", "scheduled",
-    "automatizado", "agendado"
-}
-
 
 VALID_FIELD_TYPES = {
     "string", "integer", "float", "boolean", "date", "datetime", "text"
 }
 
+VALID_RELATION_TYPES = {"ONE_TO_MANY", "MANY_TO_MANY"}
 
-# ─────────────────────────────────────────────────────────────────────────────
-# FEW-SHOT EXAMPLES
-# ─────────────────────────────────────────────────────────────────────────────
+VALID_ACTION_TRIGGERS = {
+    "manual", "automated", "scheduled",
+    "automatizado", "agendado",
+}
+
 
 FEW_SHOT_EXAMPLES = """
 === EXEMPLOS (Few-Shot) ===
 
 EXEMPLO 1 — Adicionar campo:
-  Input: "Adiciona campo preco ao objeto produto"
-  Output: {"operations": [{"op": "ADD_FIELD", "object": "produto", "field": {"name": "preco", "type": "float"}}]}
+Input: "Adiciona campo preco ao objeto produto"
+Output: {"operations": [{"op": "ADD_FIELD", "object": "produto", "field": {"name": "preco", "type": "float"}}]}
 
 EXEMPLO 2 — Renomear objeto:
-  Input: "Renomeia cliente para utilizador"
-  Output: {"operations": [{"op": "RENAME_OBJECT", "old_name": "cliente", "new_name": "utilizador"}]}
+Input: "Renomeia cliente para utilizador"
+Output: {"operations": [{"op": "RENAME_OBJECT", "old_name": "cliente", "new_name": "utilizador"}]}
 
 EXEMPLO 3 — Adicionar objeto:
-  Input: "Cria o objeto Fornecedor com nome e email"
-  Output: {"operations": [{"op": "ADD_OBJECT", "object": {"name": "Fornecedor", "fields": [{"name": "nome", "type": "string"}, {"name": "email", "type": "string"}]}}]}
+Input: "Cria o objeto Fornecedor com nome e email"
+Output: {"operations": [{"op": "ADD_OBJECT", "object": {"name": "Fornecedor", "fields": [{"name": "nome", "type": "string"}, {"name": "email", "type": "string"}]}}]}
 
-EXEMPLO 4 — Workspace inexistente:
-  Input: "Adiciona produto ao workspace Vendas"
-  Output: {"operations": [{"op": "ADD_WORKSPACE", "workspace": {"name": "Vendas", "objects": ["produto"], "permissions": ["VER"]}}, {"op": "ADD_TO_WORKSPACE", "workspace": "Vendas", "object": "produto"}]}
+EXEMPLO 4 — Relação entre objetos:
+Input: "Liga Cliente a Encomenda com ONE_TO_MANY"
+Output: {"operations": [{"op": "ADD_RELATION", "relation": {"from": "Cliente", "to": "Encomenda", "type": "ONE_TO_MANY"}}]}
 
-EXEMPLO 5 — Relação entre objetos:
-  Input: "Liga Cliente a Encomenda com ONE_TO_MANY"
-  Output: {"operations": [{"op": "ADD_RELATION", "relation": {"from": "Cliente", "to": "Encomenda", "type": "ONE_TO_MANY"}}]}
+EXEMPLO 5 — Criar ação:
+Input: "Cria uma ação AprovarTrabalho para o objeto Trabalho"
+Output: {"operations": [{"op": "ADD_ACTION", "action": {"name": "AprovarTrabalho", "type": "DOMAIN_ACTION", "description": "AprovarTrabalho no sistema", "trigger": "manual", "entities_involved": ["Trabalho"], "steps": ["validar dados necessários", "executar ação", "confirmar resultado"], "preconditions": ["Trabalho deve existir"], "postconditions": ["ação concluída"]}}]}
 
 === FIM DOS EXEMPLOS ===
 """
@@ -111,20 +117,24 @@ REGRAS ABSOLUTAS:
 3. Objetos têm "fields". Workspaces têm "objects". NUNCA os confundas.
 4. ADD_FIELD: "field" é sempre um dict único, nunca uma lista.
 5. ADD_RELATION: o payload tem "from", "to", "type".
-6. Verifica se o workspace/objeto existe no schema antes de o referenciar.
+6. ADD_ACTION: o payload tem "name", "type", "description", "trigger", "entities_involved", "steps", "preconditions", "postconditions".
+7. Verifica se o workspace/objeto/ação existe no schema antes de o referenciar.
 
 OPERAÇÕES VÁLIDAS:
 ADD_OBJECT, REMOVE_OBJECT, RENAME_OBJECT,
 ADD_FIELD, REMOVE_FIELD, RENAME_FIELD, RETYPE_FIELD,
 ADD_RELATION, REMOVE_RELATION,
-ADD_WORKSPACE, REMOVE_WORKSPACE, ADD_TO_WORKSPACE, REMOVE_FROM_WORKSPACE
+ADD_WORKSPACE, REMOVE_WORKSPACE, ADD_TO_WORKSPACE, REMOVE_FROM_WORKSPACE,
+ADD_ACTION, REMOVE_ACTION, RENAME_ACTION,
+UPDATE_ACTION_TRIGGER, UPDATE_ACTION_DESCRIPTION,
+ADD_ENTITY_TO_ACTION, REMOVE_ENTITY_FROM_ACTION
 
 {FEW_SHOT_EXAMPLES}
 """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# LIMPEZA DE OUTPUT DO LLM
+# LIMPEZA/PARSER DE OUTPUT DO LLM
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _strip_llm_noise(text: str) -> str:
@@ -132,17 +142,17 @@ def _strip_llm_noise(text: str) -> str:
         return ""
 
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
-    text = re.sub(r"```(?:json)?\s*", "", text)
-    text = re.sub(r"```", "", text)
+    text = re.sub(r"```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    text = text.replace("```", "")
 
     text = text.strip()
     start = text.find("{")
     end = text.rfind("}")
 
     if start != -1 and end != -1 and end > start:
-        text = text[start:end + 1]
+        return text[start:end + 1].strip()
 
-    return text.strip()
+    return text
 
 
 def _extract_balanced_json(text: str) -> Optional[str]:
@@ -174,7 +184,6 @@ def _extract_balanced_json(text: str) -> Optional[str]:
 
         elif ch == "}":
             depth -= 1
-
             if depth == 0 and start is not None:
                 return text[start:i + 1]
 
@@ -185,28 +194,24 @@ def _parse_llm_json(raw_text: str) -> Dict[str, Any]:
     if not raw_text or not raw_text.strip():
         raise ValueError("Resposta vazia do LLM.")
 
-    try:
-        return json.loads(raw_text.strip())
-    except json.JSONDecodeError:
-        pass
+    candidates = [
+        raw_text.strip(),
+        _strip_llm_noise(raw_text),
+    ]
 
-    cleaned = _strip_llm_noise(raw_text)
+    balanced = _extract_balanced_json(candidates[-1] or raw_text)
+    if balanced:
+        candidates.append(balanced)
 
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-
-    candidate = _extract_balanced_json(cleaned or raw_text)
-
-    if candidate:
+    for candidate in candidates:
+        if not candidate:
+            continue
         try:
             return json.loads(candidate)
         except json.JSONDecodeError:
             pass
 
-    brace_match = re.search(r"\{.*\}", cleaned or raw_text, re.DOTALL)
-
+    brace_match = re.search(r"\{.*\}", candidates[-1] or raw_text, re.DOTALL)
     if brace_match:
         try:
             return json.loads(brace_match.group(0))
@@ -214,37 +219,14 @@ def _parse_llm_json(raw_text: str) -> Dict[str, Any]:
             pass
 
     raise ValueError(
-        f"Não foi possível extrair JSON válido da resposta do LLM. "
+        "Não foi possível extrair JSON válido da resposta do LLM. "
         f"Raw: {raw_text[:400]}"
     )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# CHAMADA AO OLLAMA
+# OLLAMA
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _call_ollama(prompt_text: str, temperature: Optional[float] = None) -> str:
-    temp = temperature if temperature is not None else float(OLLAMA_OPTIONS.get("temperature", 0.1))
-    options = {**OLLAMA_OPTIONS, "temperature": temp}
-
-    result = _try_generate(prompt_text, options)
-
-    if result is not None:
-        return result
-
-    logger.warning("/api/generate falhou ou devolveu vazio — a tentar /api/chat")
-
-    result = _try_chat(prompt_text, options)
-
-    if result is not None:
-        return result
-
-    raise RuntimeError(
-        f"Ollama não respondeu em nenhum endpoint "
-        f"({ENDPOINT_GENERATE}, {ENDPOINT_CHAT}). "
-        f"Verifica se o modelo '{OLLAMA_MODEL}' está instalado."
-    )
-
 
 def _try_generate(prompt_text: str, options: dict) -> Optional[str]:
     payload = {
@@ -257,7 +239,6 @@ def _try_generate(prompt_text: str, options: dict) -> Optional[str]:
     try:
         resp = requests.post(ENDPOINT_GENERATE, json=payload, timeout=OLLAMA_TIMEOUT)
         resp.raise_for_status()
-
         raw = resp.json().get("response") or ""
 
         if raw.strip():
@@ -277,9 +258,7 @@ def _try_generate(prompt_text: str, options: dict) -> Optional[str]:
         )
 
     except requests.exceptions.Timeout:
-        raise RuntimeError(
-            f"Timeout ({OLLAMA_TIMEOUT}s) em /api/generate."
-        )
+        raise RuntimeError(f"Timeout ({OLLAMA_TIMEOUT}s) em /api/generate.")
 
     except Exception as e:
         logger.warning("[generate] erro inesperado: %s", e)
@@ -297,9 +276,7 @@ def _try_chat(prompt_text: str, options: dict) -> Optional[str]:
     try:
         resp = requests.post(ENDPOINT_CHAT, json=payload, timeout=OLLAMA_TIMEOUT)
         resp.raise_for_status()
-
-        data = resp.json()
-        raw = (data.get("message") or {}).get("content") or ""
+        raw = (resp.json().get("message") or {}).get("content") or ""
 
         if raw.strip():
             return _strip_llm_noise(raw)
@@ -316,19 +293,38 @@ def _try_chat(prompt_text: str, options: dict) -> Optional[str]:
         return None
 
 
+def _call_ollama(prompt_text: str, temperature: Optional[float] = None) -> str:
+    temp = temperature if temperature is not None else float(OLLAMA_OPTIONS.get("temperature", 0.1))
+    options = {**OLLAMA_OPTIONS, "temperature": temp}
+
+    result = _try_generate(prompt_text, options)
+    if result is not None:
+        return result
+
+    logger.warning("/api/generate falhou ou devolveu vazio — a tentar /api/chat")
+
+    result = _try_chat(prompt_text, options)
+    if result is not None:
+        return result
+
+    raise RuntimeError(
+        f"Ollama não respondeu em nenhum endpoint ({ENDPOINT_GENERATE}, {ENDPOINT_CHAT}). "
+        f"Verifica se o modelo '{OLLAMA_MODEL}' está instalado."
+    )
+
+
 def _build_ollama_prompt(
     user_prompt: str,
     current_schema: Dict[str, Any],
     error_context: Optional[str] = None,
 ) -> str:
     schema_str = json.dumps(current_schema, ensure_ascii=False, indent=2)
-
     base = f"{_SYSTEM_PROMPT}\n\nSCHEMA ATUAL:\n{schema_str}\n\n"
 
     if error_context:
         base += (
             f"ÚLTIMA OPERAÇÃO FALHOU:\n{error_context}\n\n"
-            f"Corrige APENAS este erro e gera a operação correta.\n\n"
+            "Corrige APENAS este erro e gera a operação correta.\n\n"
         )
 
     base += f"INSTRUÇÃO: {user_prompt}\n\nJSON DIFF:"
@@ -336,7 +332,7 @@ def _build_ollama_prompt(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# FIREWALL
+# FIREWALL DE DIFF
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
@@ -344,6 +340,28 @@ def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
 
     if not isinstance(operations, list):
         return False, [f"'operations' deve ser lista, recebeu {type(operations).__name__}"]
+
+    required: Dict[str, List[str]] = {
+        "REMOVE_OBJECT": ["name"],
+        "RENAME_OBJECT": ["old_name", "new_name"],
+        "ADD_FIELD": ["object", "field"],
+        "REMOVE_FIELD": ["object", "field_name"],
+        "RENAME_FIELD": ["object", "old_name", "new_name"],
+        "RETYPE_FIELD": ["object", "field_name", "new_type"],
+        "ADD_RELATION": ["relation"],
+        "REMOVE_RELATION": ["name"],
+        "ADD_WORKSPACE": ["workspace"],
+        "REMOVE_WORKSPACE": ["name"],
+        "ADD_TO_WORKSPACE": ["workspace", "object"],
+        "REMOVE_FROM_WORKSPACE": ["workspace", "object"],
+        "ADD_ACTION": ["action"],
+        "REMOVE_ACTION": ["name"],
+        "RENAME_ACTION": ["old_name", "new_name"],
+        "UPDATE_ACTION_TRIGGER": ["action", "trigger"],
+        "UPDATE_ACTION_DESCRIPTION": ["action", "description"],
+        "ADD_ENTITY_TO_ACTION": ["action", "object"],
+        "REMOVE_ENTITY_FROM_ACTION": ["action", "object"],
+    }
 
     for i, op_dict in enumerate(operations):
         if not isinstance(op_dict, dict):
@@ -360,92 +378,77 @@ def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
             errors.append(f"[op #{i}] Operação desconhecida '{op}'.")
             continue
 
-        if op == "ADD_OBJECT":
-            p = op_dict.get("object") or {}
-
-            if not isinstance(p, dict):
-                errors.append(f"[op #{i}] ADD_OBJECT.object deve ser dict.")
-
-            elif "objects" in p and "fields" not in p:
-                errors.append(f"[op #{i}] ADD_OBJECT parece Workspace.")
-
-            elif "from" in p or "to" in p:
-                errors.append(f"[op #{i}] ADD_OBJECT parece Relation.")
-
-        if op == "ADD_WORKSPACE":
-            p = op_dict.get("workspace") or {}
-
-            if not isinstance(p, dict):
-                errors.append(f"[op #{i}] ADD_WORKSPACE.workspace deve ser dict.")
-
-            elif "fields" in p:
-                errors.append(f"[op #{i}] ADD_WORKSPACE parece Object.")
-        if op == "ADD_ACTION":
-            p = op_dict.get("action") or {}
-
-            if not isinstance(p, dict):
-                errors.append(f"[op #{i}] ADD_ACTION.action deve ser dict.")
-
-            elif not p.get("name"):
-                errors.append(f"[op #{i}] ADD_ACTION.action precisa de 'name'.")
-
-        required: Dict[str, List[str]] = {
-            "REMOVE_OBJECT": ["name"],
-            "RENAME_OBJECT": ["old_name", "new_name"],
-            "ADD_FIELD": ["object", "field"],
-            "REMOVE_FIELD": ["object", "field_name"],
-            "RENAME_FIELD": ["object", "old_name", "new_name"],
-            "RETYPE_FIELD": ["object", "field_name", "new_type"],
-            "ADD_RELATION": ["relation"],
-            "REMOVE_RELATION": ["name"],
-            "REMOVE_WORKSPACE": ["name"],
-            "ADD_TO_WORKSPACE": ["workspace", "object"],
-            "REMOVE_FROM_WORKSPACE": ["workspace", "object"],
-            "ADD_ACTION": ["action"],
-            "REMOVE_ACTION": ["name"],
-            "RENAME_ACTION": ["old_name", "new_name"],
-            "UPDATE_ACTION_TRIGGER": ["action", "trigger"],
-            "UPDATE_ACTION_DESCRIPTION": ["action", "description"],
-            "ADD_ENTITY_TO_ACTION": ["action", "object"],
-            "REMOVE_ENTITY_FROM_ACTION": ["action", "object"],
-        }
-
         for key in required.get(op, []):
             if key not in op_dict:
                 errors.append(f"[op #{i}] '{op}' falta chave '{key}'.")
 
-        if op == "ADD_FIELD":
-            if isinstance(op_dict.get("field"), list):
-                errors.append(f"[op #{i}] ADD_FIELD.field é lista — usa ADD_FIELD separados.")
+        if op == "ADD_OBJECT":
+            p = op_dict.get("object") or {}
+            if not isinstance(p, dict):
+                errors.append(f"[op #{i}] ADD_OBJECT.object deve ser dict.")
+            elif "objects" in p and "fields" not in p:
+                errors.append(f"[op #{i}] ADD_OBJECT parece Workspace.")
+            elif "from" in p or "to" in p:
+                errors.append(f"[op #{i}] ADD_OBJECT parece Relation.")
+
+        if op == "ADD_FIELD" and isinstance(op_dict.get("field"), list):
+            errors.append(f"[op #{i}] ADD_FIELD.field é lista — usa ADD_FIELD separados.")
 
         if op == "ADD_RELATION":
             rel = op_dict.get("relation") or {}
-
-            if isinstance(rel, dict) and ("from" not in rel or "to" not in rel):
+            if not isinstance(rel, dict):
+                errors.append(f"[op #{i}] ADD_RELATION.relation deve ser dict.")
+            elif "from" not in rel or "to" not in rel:
                 errors.append(f"[op #{i}] ADD_RELATION.relation precisa de 'from' e 'to'.")
+
+        if op == "ADD_WORKSPACE":
+            p = op_dict.get("workspace") or {}
+            if not isinstance(p, dict):
+                errors.append(f"[op #{i}] ADD_WORKSPACE.workspace deve ser dict.")
+            elif "fields" in p:
+                errors.append(f"[op #{i}] ADD_WORKSPACE parece Object.")
+
+        if op == "ADD_ACTION":
+            p = op_dict.get("action") or {}
+            if not isinstance(p, dict):
+                errors.append(f"[op #{i}] ADD_ACTION.action deve ser dict.")
+            elif not p.get("name"):
+                errors.append(f"[op #{i}] ADD_ACTION.action precisa de 'name'.")
 
     return len(errors) == 0, errors
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS DE MUTAÇÃO
+# HELPERS GERAIS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _find_object(bp: BlueprintModel, name: str) -> Optional[ObjectModel]:
-    nl = str(name or "").lower()
-    return next((o for o in bp.objects if o.name.lower() == nl), None)
-
-
-def _find_workspace(bp: BlueprintModel, name: str) -> Optional[WorkspaceModel]:
-    nl = str(name or "").lower()
-    return next((w for w in bp.workspaces if w.name.lower() == nl), None)
-def _norm_action_key(value: str) -> str:
-    """
-    Normaliza nomes de ações para comparação tolerante:
-    'Registar Venda', 'RegistarVenda' e 'registar_venda' ficam comparáveis.
-    """
+def _norm_token(value: str) -> str:
     value = str(value or "").strip().lower()
+    replacements = {
+        "ç": "c",
+        "á": "a",
+        "à": "a",
+        "â": "a",
+        "ã": "a",
+        "é": "e",
+        "ê": "e",
+        "í": "i",
+        "ó": "o",
+        "ô": "o",
+        "õ": "o",
+        "ú": "u",
+    }
 
+    for old, new in replacements.items():
+        value = value.replace(old, new)
+
+    value = re.sub(r"[\s\-]+", "_", value)
+    value = re.sub(r"[^a-z0-9_]", "", value)
+    return value.strip("_")
+
+
+def _norm_action_key(value: str) -> str:
+    value = str(value or "").strip().lower()
     replacements = {
         "ç": "c",
         "á": "a",
@@ -467,114 +470,34 @@ def _norm_action_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value)
 
 
+def _find_object(bp: BlueprintModel, name: str) -> Optional[ObjectModel]:
+    target = _norm_token(name)
+    return next((o for o in bp.objects if _norm_token(o.name) == target), None)
+
+
+def _find_workspace(bp: BlueprintModel, name: str) -> Optional[WorkspaceModel]:
+    target = _norm_token(name)
+    return next((w for w in bp.workspaces if _norm_token(w.name) == target), None)
+
+
 def _find_action(bp: BlueprintModel, name: str):
     target = _norm_action_key(name)
-
-    return next(
-        (a for a in bp.actions if _norm_action_key(a.name) == target),
-        None
-    )
-
-
-def _remove_object_from_all_workspaces(bp: BlueprintModel, name: str) -> None:
-    nl = name.lower()
-
-    for ws in bp.workspaces:
-        ws.objects = [o for o in ws.objects if o.lower() != nl]
-
-
-def _rename_object_in_workspaces(bp: BlueprintModel, old: str, new: str) -> None:
-    ol = old.lower()
-
-    for ws in bp.workspaces:
-        ws.objects = [new if o.lower() == ol else o for o in ws.objects]
-
-        if ws.primary_entity.lower() == ol:
-            ws.primary_entity = new
-
-
-def _rename_object_in_relations(bp: BlueprintModel, old: str, new: str) -> None:
-    ol = old.lower()
-
-    for rel in bp.relations:
-        if rel.from_obj.lower() == ol:
-            rel.from_obj = new
-
-        if rel.to_obj.lower() == ol:
-            rel.to_obj = new
-
-
-def _remove_object_from_relations(bp: BlueprintModel, name: str) -> None:
-    nl = name.lower()
-
-    bp.relations = [
-        r for r in bp.relations
-        if r.from_obj.lower() != nl and r.to_obj.lower() != nl
-    ]
-def _rename_object_in_actions(bp: BlueprintModel, old: str, new: str) -> None:
-    ol = old.lower()
-
-    for action in bp.actions:
-        action.entities_involved = [
-            new if str(entity).lower() == ol else entity
-            for entity in action.entities_involved
-        ]
-
-
-def _remove_object_from_actions(bp: BlueprintModel, name: str) -> None:
-    nl = name.lower()
-
-    for action in bp.actions:
-        action.entities_involved = [
-            entity for entity in action.entities_involved
-            if str(entity).lower() != nl
-        ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# OPERAÇÕES SIMPLES DETERMINÍSTICAS
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _norm_token(value: str) -> str:
-    value = str(value or "").strip().lower()
-
-    replacements = {
-        "ç": "c",
-        "á": "a",
-        "à": "a",
-        "â": "a",
-        "ã": "a",
-        "é": "e",
-        "ê": "e",
-        "í": "i",
-        "ó": "o",
-        "ô": "o",
-        "õ": "o",
-        "ú": "u",
-    }
-
-    for old, new in replacements.items():
-        value = value.replace(old, new)
-
-    value = re.sub(r"[\s\-]+", "_", value)
-    value = re.sub(r"[^a-z0-9_]", "", value)
-
-    return value.strip("_")
+    return next((a for a in bp.actions if _norm_action_key(a.name) == target), None)
 
 
 def _infer_field_type(field_name: str) -> str:
     fn = _norm_token(field_name)
 
-    if any(k in fn for k in ["preco", "valor", "total", "custo", "saldo", "orcamento"]):
+    if any(k in fn for k in ["preco", "valor", "total", "custo", "saldo", "orcamento", "nota"]):
         return "float"
 
-    if any(k in fn for k in ["stock", "quantidade", "numero", "ano", "idade"]):
+    if any(k in fn for k in ["stock", "quantidade", "numero", "ano", "idade", "prioridade"]):
         return "integer"
 
     if "data" in fn or "date" in fn:
         return "datetime"
 
-    if any(k in fn for k in ["ativo", "validado", "aprovado", "pago"]):
+    if any(k in fn for k in ["ativo", "validado", "aprovado", "pago", "publicado"]):
         return "boolean"
 
     if any(k in fn for k in ["descricao", "notas", "observacoes", "comentario"]):
@@ -585,7 +508,6 @@ def _infer_field_type(field_name: str) -> str:
 
 def _normalize_type(value: str) -> str:
     raw = _norm_token(value)
-
     aliases = {
         "int": "integer",
         "inteiro": "integer",
@@ -606,9 +528,9 @@ def _normalize_type(value: str) -> str:
 
     return aliases.get(raw, "string")
 
+
 def _normalize_trigger(value: str) -> str:
     raw = _norm_token(value)
-
     aliases = {
         "manual": "manual",
         "manualmente": "manual",
@@ -626,40 +548,32 @@ def _normalize_trigger(value: str) -> str:
 
 
 def _format_action_name(raw: str) -> str:
-    """
-    Converte nomes de ações de linguagem natural para um nome estável.
-    'registar venda' -> 'RegistarVenda'
-    'AprovarTrabalho' -> 'AprovarTrabalho'
-    """
     raw = str(raw or "").strip().strip("'\"“”‘’")
 
     if not raw:
         return ""
 
-    if re.search(r"\s", raw):
+    raw = re.sub(
+        r"\s+(?:para|sobre|no|na)\s+(?:o\s+)?(?:objeto\s+)?[a-zA-ZÀ-ÿ0-9_]+$",
+        "",
+        raw,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    if re.search(r"[\s_\-]+", raw):
         parts = re.split(r"[\s_\-]+", raw)
         return "".join(p[:1].upper() + p[1:] for p in parts if p)
 
     return raw
 
 
-def _field_exists(obj: ObjectModel, field_name: str) -> bool:
-    target = _norm_token(field_name)
-
-    return any(
-        _norm_token(field.name) == target
-        for field in obj.fields
-    )
-
-
 def _find_object_for_field(
     bp: BlueprintModel,
     field_name: str,
-    explicit_object: Optional[str] = None
+    explicit_object: Optional[str] = None,
 ) -> Optional[str]:
     if explicit_object:
         obj = _find_object(bp, explicit_object)
-
         if obj:
             return obj.name
 
@@ -682,7 +596,7 @@ def _parse_field_list(raw: str) -> List[Dict[str, str]]:
     raw = raw.replace(";", ",")
 
     parts = [p.strip() for p in raw.split(",") if p.strip()]
-    fields = []
+    fields: List[Dict[str, str]] = []
 
     for part in parts:
         field_name = part
@@ -692,14 +606,12 @@ def _parse_field_list(raw: str) -> List[Dict[str, str]]:
             left, right = part.split(":", 1)
             field_name = left.strip()
             field_type = _normalize_type(right.strip())
-
         else:
             match = re.match(
                 r"(.+?)\s+(string|integer|float|boolean|date|datetime|text|inteiro|texto|decimal)$",
                 part,
-                re.IGNORECASE
+                re.IGNORECASE,
             )
-
             if match:
                 field_name = match.group(1).strip()
                 field_type = _normalize_type(match.group(2).strip())
@@ -711,44 +623,82 @@ def _parse_field_list(raw: str) -> List[Dict[str, str]]:
 
         fields.append({
             "name": fname,
-            "type": field_type or _infer_field_type(fname)
+            "type": field_type or _infer_field_type(fname),
         })
 
     return fields
 
 
+def _remove_object_from_all_workspaces(bp: BlueprintModel, name: str) -> None:
+    nl = name.lower()
+
+    for ws in bp.workspaces:
+        ws.objects = [o for o in ws.objects if str(o).lower() != nl]
+
+        if str(ws.primary_entity).lower() == nl:
+            ws.primary_entity = ws.objects[0] if ws.objects else ""
+
+
+def _rename_object_in_workspaces(bp: BlueprintModel, old: str, new: str) -> None:
+    ol = old.lower()
+
+    for ws in bp.workspaces:
+        ws.objects = [new if str(o).lower() == ol else o for o in ws.objects]
+
+        if str(ws.primary_entity).lower() == ol:
+            ws.primary_entity = new
+
+
+def _remove_object_from_relations(bp: BlueprintModel, name: str) -> None:
+    nl = name.lower()
+    bp.relations = [
+        r for r in bp.relations
+        if str(r.from_obj).lower() != nl and str(r.to_obj).lower() != nl
+    ]
+
+
+def _rename_object_in_relations(bp: BlueprintModel, old: str, new: str) -> None:
+    ol = old.lower()
+
+    for rel in bp.relations:
+        if str(rel.from_obj).lower() == ol:
+            rel.from_obj = new
+
+        if str(rel.to_obj).lower() == ol:
+            rel.to_obj = new
+
+
+def _remove_object_from_actions(bp: BlueprintModel, name: str) -> None:
+    nl = name.lower()
+
+    for action in bp.actions:
+        action.entities_involved = [
+            entity for entity in action.entities_involved
+            if str(entity).lower() != nl
+        ]
+
+
+def _rename_object_in_actions(bp: BlueprintModel, old: str, new: str) -> None:
+    ol = old.lower()
+
+    for action in bp.actions:
+        action.entities_involved = [
+            new if str(entity).lower() == ol else entity
+            for entity in action.entities_involved
+        ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPERAÇÕES DETERMINÍSTICAS
+# ─────────────────────────────────────────────────────────────────────────────
+
 def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[str, Any]]:
-    """
-    Resolve operações estruturais simples sem depender diretamente do LLM.
-
-    Isto NÃO remove a LLM da arquitetura.
-    Apenas garante que operações críticas e previsíveis são transformadas
-    em diffs seguros antes do fallback para LLM.
-
-    Suporta:
-    - ADD_FIELD
-    - REMOVE_FIELD
-    - RENAME_FIELD
-    - RETYPE_FIELD
-    - ADD_OBJECT
-    - REMOVE_OBJECT
-    - RENAME_OBJECT
-    - ADD_RELATION
-    - REMOVE_RELATION
-    - ADD_WORKSPACE
-    - REMOVE_WORKSPACE
-    - ADD_TO_WORKSPACE
-    - REMOVE_FROM_WORKSPACE
-    - várias operações simples no mesmo prompt
-    """
-
     text = str(user_prompt or "").strip()
     low = text.lower()
 
     operations: List[Dict[str, Any]] = []
 
     def _add_op(op: Dict[str, Any]) -> None:
-        """Adiciona operação evitando duplicados exatos."""
         key = json.dumps(op, ensure_ascii=False, sort_keys=True)
         existing = {
             json.dumps(x, ensure_ascii=False, sort_keys=True)
@@ -759,56 +709,55 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             operations.append(op)
 
     def _resolve_object_name(raw_name: Optional[str]) -> Optional[str]:
-        """Resolve nome de objeto preservando capitalização real do schema."""
         if not raw_name:
             return None
 
-        raw_norm = _norm_token(raw_name)
-
-        for obj in bp.objects:
-            if _norm_token(obj.name) == raw_norm:
-                return obj.name
-
-        return None
+        obj = _find_object(bp, raw_name)
+        return obj.name if obj else None
 
     def _resolve_workspace_name(raw_name: Optional[str]) -> Optional[str]:
-        """Resolve nome de workspace preservando capitalização real do schema."""
         if not raw_name:
             return None
 
-        raw_norm = _norm_token(raw_name)
+        ws = _find_workspace(bp, raw_name)
+        return ws.name if ws else None
 
-        for ws in bp.workspaces:
-            if _norm_token(ws.name) == raw_norm:
-                return ws.name
+    def _resolve_action_name(raw_name: Optional[str]) -> Optional[str]:
+        if not raw_name:
+            return None
 
-        return None
+        raw = str(raw_name).strip().strip("'\"“”‘’")
+        raw = re.sub(
+            r"\s+(?:para|sobre|no|na)\s+(?:o\s+)?(?:objeto\s+)?[a-zA-ZÀ-ÿ0-9_]+$",
+            "",
+            raw,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        formatted = _format_action_name(raw)
+
+        for action in bp.actions:
+            if (
+                _norm_action_key(action.name) == _norm_action_key(raw)
+                or _norm_action_key(action.name) == _norm_action_key(formatted)
+            ):
+                return action.name
+
+        return formatted if formatted else None
 
     def _parse_object_names(raw: str) -> List[str]:
-        """
-        Extrai nomes de objetos de texto livre:
-        'Livro e Projeto' -> ['Livro', 'Projeto']
-        'Livro, Projeto' -> ['Livro', 'Projeto']
-        """
         raw = str(raw or "").strip()
         raw = raw.replace(" e ", ",")
         raw = raw.replace(";", ",")
 
-        parts = [
-            p.strip()
-            for p in raw.split(",")
-            if p.strip()
-        ]
-
         resolved = []
 
-        for part in parts:
-            # cortar ruído comum no fim
+        for part in [p.strip() for p in raw.split(",") if p.strip()]:
             part = re.split(
                 r"\s+(?:com|como|do|da|de|no|na|ao|à)\s+",
                 part,
                 maxsplit=1,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )[0].strip()
 
             obj_name = _resolve_object_name(part)
@@ -818,10 +767,7 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
 
         return resolved
 
-    # ─────────────────────────────────────────────────────────────────────
     # 1. RENAME_FIELD
-    # ─────────────────────────────────────────────────────────────────────
-
     rename_field_patterns = [
         r"(?:renomeia|renomear)\s+(?:o\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)\s+(?:para|por)\s+([a-zA-ZÀ-ÿ0-9_]+)",
         r"(?:troca|trocar|substitui|substituir)\s+(?:o\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)\s+(?:para|por)\s+([a-zA-ZÀ-ÿ0-9_]+)",
@@ -838,13 +784,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
                     "op": "RENAME_FIELD",
                     "object": obj_name,
                     "old_name": old_name,
-                    "new_name": new_name
+                    "new_name": new_name,
                 })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 2. REMOVE_FIELD
-    # ─────────────────────────────────────────────────────────────────────
-
     remove_field_pattern = (
         r"(?:remove|remover|apaga|apagar|elimina|eliminar|retira|tirar)\s+"
         r"(?:o\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)"
@@ -860,13 +803,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             _add_op({
                 "op": "REMOVE_FIELD",
                 "object": obj_name,
-                "field_name": field_name
+                "field_name": field_name,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 3. RETYPE_FIELD
-    # ─────────────────────────────────────────────────────────────────────
-
     retype_field_pattern = (
         r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
         r"(?:o\s+)?tipo\s+(?:do\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
@@ -883,13 +823,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
                 "op": "RETYPE_FIELD",
                 "object": obj_name,
                 "field_name": field_name,
-                "new_type": new_type
+                "new_type": new_type,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 4. ADD_FIELD
-    # ─────────────────────────────────────────────────────────────────────
-
     add_field_pattern = (
         r"(?:adiciona|adicionar|acrescenta|acrescentar|cria|criar)\s+"
         r"(?:o\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)"
@@ -902,10 +839,7 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
         explicit_obj = match.group(2)
         field_type = _normalize_type(match.group(3)) if match.group(3) else _infer_field_type(field_name)
 
-        obj_name = None
-
-        if explicit_obj:
-            obj_name = _resolve_object_name(explicit_obj)
+        obj_name = _resolve_object_name(explicit_obj) if explicit_obj else None
 
         if not obj_name and len(bp.objects) == 1:
             obj_name = bp.objects[0].name
@@ -916,14 +850,11 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
                 "object": obj_name,
                 "field": {
                     "name": field_name,
-                    "type": field_type
-                }
+                    "type": field_type,
+                },
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 5. ADD_OBJECT
-    # ─────────────────────────────────────────────────────────────────────
-
     add_object_pattern = (
         r"(?:adiciona|adicionar|cria|criar)\s+"
         r"(?:um\s+|uma\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
@@ -932,21 +863,17 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
 
     for match in re.finditer(add_object_pattern, text, re.IGNORECASE):
         object_name = str(match.group(1)).strip()
-        fields_raw = match.group(2).strip()
-        fields = _parse_field_list(fields_raw)
+        fields = _parse_field_list(match.group(2).strip())
 
         _add_op({
             "op": "ADD_OBJECT",
             "object": {
                 "name": object_name,
-                "fields": fields
-            }
+                "fields": fields,
+            },
         })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 6. RENAME_OBJECT
-    # ─────────────────────────────────────────────────────────────────────
-
     rename_object_patterns = [
         r"(?:renomeia|renomear)\s+(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+(?:para|por)\s+([a-zA-ZÀ-ÿ0-9_]+)",
         r"(?:troca|trocar|substitui|substituir)\s+(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+(?:para|por)\s+([a-zA-ZÀ-ÿ0-9_]+)",
@@ -954,23 +881,17 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
 
     for pattern in rename_object_patterns:
         for match in re.finditer(pattern, text, re.IGNORECASE):
-            old_name_raw = match.group(1)
-            new_name_raw = match.group(2)
-
-            old_name = _resolve_object_name(old_name_raw)
-            new_name = str(new_name_raw).strip()
+            old_name = _resolve_object_name(match.group(1))
+            new_name = str(match.group(2)).strip()
 
             if old_name and new_name:
                 _add_op({
                     "op": "RENAME_OBJECT",
                     "old_name": old_name,
-                    "new_name": new_name
+                    "new_name": new_name,
                 })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 7. REMOVE_OBJECT
-    # ─────────────────────────────────────────────────────────────────────
-
     remove_object_pattern = (
         r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
         r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)"
@@ -983,13 +904,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
         if obj_name:
             _add_op({
                 "op": "REMOVE_OBJECT",
-                "name": obj_name
+                "name": obj_name,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 8. ADD_RELATION
-    # ─────────────────────────────────────────────────────────────────────
-
     add_relation_patterns = [
         (
             r"(?:cria|criar|adiciona|adicionar)\s+"
@@ -1010,20 +928,20 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             to_obj = _resolve_object_name(match.group(2))
             rel_type = (match.group(3) or "ONE_TO_MANY").upper()
 
+            if rel_type not in VALID_RELATION_TYPES:
+                rel_type = "ONE_TO_MANY"
+
             if from_obj and to_obj and from_obj != to_obj:
                 _add_op({
                     "op": "ADD_RELATION",
                     "relation": {
                         "from": from_obj,
                         "to": to_obj,
-                        "type": rel_type
-                    }
+                        "type": rel_type,
+                    },
                 })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 9. REMOVE_RELATION
-    # ─────────────────────────────────────────────────────────────────────
-
     remove_relation_pattern = (
         r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
         r"(?:a\s+)?(?:relação|relacao)\s+entre\s+"
@@ -1037,13 +955,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
         if from_obj and to_obj:
             _add_op({
                 "op": "REMOVE_RELATION",
-                "name": f"{from_obj}→{to_obj}"
+                "name": f"{from_obj}→{to_obj}",
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 10. ADD_WORKSPACE
-    # ─────────────────────────────────────────────────────────────────────
-
     add_workspace_pattern = (
         r"(?:cria|criar|adiciona|adicionar)\s+"
         r"(?:um\s+|uma\s+)?workspace\s+([a-zA-ZÀ-ÿ0-9_]+)"
@@ -1053,22 +968,18 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
 
     for match in re.finditer(add_workspace_pattern, text, re.IGNORECASE):
         workspace_name = str(match.group(1)).strip()
-        objects_raw = match.group(2) or ""
-        objects = _parse_object_names(objects_raw)
+        objects = _parse_object_names(match.group(2) or "")
 
         _add_op({
             "op": "ADD_WORKSPACE",
             "workspace": {
                 "name": workspace_name,
                 "objects": objects,
-                "permissions": ["VER", "CRIAR", "EDITAR", "APAGAR"]
-            }
+                "permissions": ["VER", "CRIAR", "EDITAR", "APAGAR"],
+            },
         })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 11. REMOVE_WORKSPACE
-    # ─────────────────────────────────────────────────────────────────────
-
     remove_workspace_pattern = (
         r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
         r"(?:o\s+)?workspace\s+([a-zA-ZÀ-ÿ0-9_]+)"
@@ -1080,13 +991,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
         if ws_name:
             _add_op({
                 "op": "REMOVE_WORKSPACE",
-                "name": ws_name
+                "name": ws_name,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 12. ADD_TO_WORKSPACE
-    # ─────────────────────────────────────────────────────────────────────
-
     add_to_workspace_pattern = (
         r"(?:adiciona|adicionar|mete|coloca)\s+"
         r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
@@ -1101,13 +1009,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             _add_op({
                 "op": "ADD_TO_WORKSPACE",
                 "workspace": ws_name,
-                "object": obj_name
+                "object": obj_name,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 13. REMOVE_FROM_WORKSPACE
-    # ─────────────────────────────────────────────────────────────────────
-
     remove_from_workspace_pattern = (
         r"(?:remove|remover|retira|tirar)\s+"
         r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
@@ -1122,38 +1027,60 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             _add_op({
                 "op": "REMOVE_FROM_WORKSPACE",
                 "workspace": ws_name,
-                "object": obj_name
+                "object": obj_name,
             })
-    # ─────────────────────────────────────────────────────────────────────
-    # 14. ADD_ACTION
-    # ─────────────────────────────────────────────────────────────────────
 
-    add_action_patterns = [
-        (
-            r"(?:cria|criar|adiciona|adicionar)\s+"
-            r"(?:uma\s+)?(?:ação|acao|action)\s+(.+?)\s+"
-            r"(?:para|sobre|no|na)\s+(?:o\s+)?(?:objeto\s+)?([a-zA-ZÀ-ÿ0-9_]+)"
-            r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-        ),
-        (
+    # 14. ADD_ACTION
+    add_action_specific_pattern = (
+        r"(?:cria|criar|adiciona|adicionar)\s+"
+        r"(?:uma\s+)?(?:ação|acao|action)\s+(.+?)\s+"
+        r"(?:para|sobre|no|na)\s+(?:o\s+)?(?:objeto\s+)?([a-zA-ZÀ-ÿ0-9_]+)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    )
+
+    specific_matches = list(re.finditer(add_action_specific_pattern, text, re.IGNORECASE))
+
+    for match in specific_matches:
+        action_name = _format_action_name(match.group(1))
+        entity = _resolve_object_name(match.group(2))
+
+        if not action_name:
+            continue
+
+        _add_op({
+            "op": "ADD_ACTION",
+            "action": {
+                "name": action_name,
+                "type": "DOMAIN_ACTION",
+                "description": f"{action_name} no sistema",
+                "trigger": "manual",
+                "entities_involved": [entity] if entity else [],
+                "steps": [
+                    "validar dados necessários",
+                    "executar ação",
+                    "confirmar resultado",
+                ],
+                "preconditions": [
+                    f"{entity} deve existir" if entity else "condições necessárias devem estar reunidas",
+                ],
+                "postconditions": [
+                    "ação concluída",
+                ],
+            },
+        })
+
+    if not specific_matches:
+        add_action_general_pattern = (
             r"(?:cria|criar|adiciona|adicionar)\s+"
             r"(?:uma\s+)?(?:ação|acao|action)\s+(.+?)"
             r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-        ),
-    ]
+        )
 
-    for pattern in add_action_patterns:
-        for match in re.finditer(pattern, text, re.IGNORECASE):
+        for match in re.finditer(add_action_general_pattern, text, re.IGNORECASE):
             action_name = _format_action_name(match.group(1))
-            entity = None
-
-            if len(match.groups()) >= 2:
-                entity = _resolve_object_name(match.group(2))
 
             if not action_name:
                 continue
-
-            entities = [entity] if entity else []
 
             _add_op({
                 "op": "ADD_ACTION",
@@ -1162,25 +1089,22 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
                     "type": "DOMAIN_ACTION",
                     "description": f"{action_name} no sistema",
                     "trigger": "manual",
-                    "entities_involved": entities,
+                    "entities_involved": [],
                     "steps": [
                         "validar dados necessários",
                         "executar ação",
-                        "confirmar resultado"
+                        "confirmar resultado",
                     ],
                     "preconditions": [
-                        f"{entity} deve existir" if entity else "condições necessárias devem estar reunidas"
+                        "condições necessárias devem estar reunidas",
                     ],
                     "postconditions": [
-                        "ação concluída"
-                    ]
-                }
+                        "ação concluída",
+                    ],
+                },
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 15. REMOVE_ACTION
-    # ─────────────────────────────────────────────────────────────────────
-
     remove_action_pattern = (
         r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
         r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)"
@@ -1192,14 +1116,11 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
 
         if action_name:
             _add_op({
-                    "op": "REMOVE_ACTION",
-                "name": action_name
+                "op": "REMOVE_ACTION",
+                "name": action_name,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 16. RENAME_ACTION
-    # ─────────────────────────────────────────────────────────────────────
-
     rename_action_patterns = [
         (
             r"(?:renomeia|renomear)\s+"
@@ -1224,13 +1145,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
                 _add_op({
                     "op": "RENAME_ACTION",
                     "old_name": old_name,
-                    "new_name": new_name
+                    "new_name": new_name,
                 })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 17. UPDATE_ACTION_TRIGGER
-    # ─────────────────────────────────────────────────────────────────────
-
     update_action_trigger_pattern = (
         r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
         r"(?:o\s+)?trigger\s+(?:da|de)\s+"
@@ -1247,13 +1165,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             _add_op({
                 "op": "UPDATE_ACTION_TRIGGER",
                 "action": action_name,
-                "trigger": trigger
+                "trigger": trigger,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 18. UPDATE_ACTION_DESCRIPTION
-    # ─────────────────────────────────────────────────────────────────────
-
     update_action_description_pattern = (
         r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
         r"(?:a\s+)?(?:descrição|descricao)\s+(?:da|de)\s+"
@@ -1270,13 +1185,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             _add_op({
                 "op": "UPDATE_ACTION_DESCRIPTION",
                 "action": action_name,
-                "description": description
+                "description": description,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 19. ADD_ENTITY_TO_ACTION
-    # ─────────────────────────────────────────────────────────────────────
-
     add_entity_to_action_pattern = (
         r"(?:adiciona|adicionar|mete|coloca)\s+"
         r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
@@ -1292,13 +1204,10 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             _add_op({
                 "op": "ADD_ENTITY_TO_ACTION",
                 "action": action_name,
-                "object": obj_name
+                "object": obj_name,
             })
 
-    # ─────────────────────────────────────────────────────────────────────
     # 20. REMOVE_ENTITY_FROM_ACTION
-    # ─────────────────────────────────────────────────────────────────────
-
     remove_entity_from_action_pattern = (
         r"(?:remove|remover|retira|tirar)\s+"
         r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
@@ -1314,7 +1223,7 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             _add_op({
                 "op": "REMOVE_ENTITY_FROM_ACTION",
                 "action": action_name,
-                "object": obj_name
+                "object": obj_name,
             })
 
     return operations
@@ -1364,10 +1273,8 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         if obj is None:
             w.append(f"RENAME_OBJECT: '{old}' não encontrado.")
-
         elif _find_object(bp, new):
             w.append(f"RENAME_OBJECT: '{new}' já existe.")
-
         else:
             obj.name = new
             _rename_object_in_workspaces(bp, old, new)
@@ -1404,10 +1311,7 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
         fn = op_dict["field_name"].lower()
         n0 = len(obj.fields)
 
-        obj.fields = [
-            f for f in obj.fields
-            if f.name.lower() != fn
-        ]
+        obj.fields = [f for f in obj.fields if f.name.lower() != fn]
 
         if len(obj.fields) == n0:
             w.append(f"REMOVE_FIELD: campo '{op_dict['field_name']}' não encontrado.")
@@ -1421,18 +1325,13 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         tgt = next(
             (f for f in obj.fields if f.name.lower() == op_dict["old_name"].lower()),
-            None
+            None,
         )
 
         if tgt is None:
             w.append(f"RENAME_FIELD: campo '{op_dict['old_name']}' não encontrado.")
-
-        elif any(
-            f.name.lower() == op_dict["new_name"].lower() and f is not tgt
-            for f in obj.fields
-        ):
+        elif any(f.name.lower() == op_dict["new_name"].lower() and f is not tgt for f in obj.fields):
             w.append(f"RENAME_FIELD: '{op_dict['new_name']}' já existe.")
-
         else:
             tgt.name = op_dict["new_name"]
 
@@ -1445,12 +1344,11 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         tgt = next(
             (f for f in obj.fields if f.name.lower() == op_dict["field_name"].lower()),
-            None
+            None,
         )
 
         if tgt is None:
             w.append(f"RETYPE_FIELD: campo '{op_dict['field_name']}' não encontrado.")
-
         else:
             new_type = str(op_dict["new_type"]).lower()
 
@@ -1474,38 +1372,29 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         if not _find_object(bp, rel.from_obj):
             w.append(f"ADD_RELATION: '{rel.from_obj}' não encontrado.")
-
         elif not _find_object(bp, rel.to_obj):
             w.append(f"ADD_RELATION: '{rel.to_obj}' não encontrado.")
-
         elif any(
             r.from_obj.lower() == rel.from_obj.lower()
             and r.to_obj.lower() == rel.to_obj.lower()
             for r in bp.relations
         ):
             w.append(f"ADD_RELATION: '{rel.from_obj}→{rel.to_obj}' já existe.")
-
         else:
             bp.relations.append(rel)
 
     elif op == "REMOVE_RELATION":
         name = op_dict["name"]
         n0 = len(bp.relations)
-
         parts = re.split(r"[→_\-]", name, maxsplit=1)
 
         if len(parts) == 2:
             fl = parts[0].strip().lower()
             tl = parts[1].strip().lower()
-
             bp.relations = [
                 r for r in bp.relations
-                if not (
-                    r.from_obj.lower() == fl
-                    and r.to_obj.lower() == tl
-                )
+                if not (r.from_obj.lower() == fl and r.to_obj.lower() == tl)
             ]
-
         else:
             bp.relations = [
                 r for r in bp.relations
@@ -1526,18 +1415,22 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         if _find_workspace(bp, ws.name):
             w.append(f"ADD_WORKSPACE: '{ws.name}' já existe.")
-
         else:
-            valid = {o.name.lower() for o in bp.objects}
-            dropped = set(ws.objects) - {o for o in ws.objects if o.lower() in valid}
+            valid = {o.name.lower(): o.name for o in bp.objects}
+            normalized = []
 
-            ws.objects = [
-                o for o in ws.objects
-                if o.lower() in valid
-            ]
+            for obj in ws.objects:
+                canonical = valid.get(str(obj).lower())
+                if canonical and canonical not in normalized:
+                    normalized.append(canonical)
 
-            if dropped:
-                w.append(f"ADD_WORKSPACE: removidas refs inexistentes: {dropped}")
+            ws.objects = normalized
+
+            if ws.objects and not ws.primary_entity:
+                ws.primary_entity = ws.objects[0]
+
+            if ws.primary_entity and not any(str(o).lower() == str(ws.primary_entity).lower() for o in ws.objects):
+                ws.primary_entity = ws.objects[0] if ws.objects else ""
 
             bp.workspaces.append(ws)
 
@@ -1546,10 +1439,7 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
         nl = name.lower()
         n0 = len(bp.workspaces)
 
-        bp.workspaces = [
-            ws for ws in bp.workspaces
-            if ws.name.lower() != nl
-        ]
+        bp.workspaces = [ws for ws in bp.workspaces if ws.name.lower() != nl]
 
         if len(bp.workspaces) == n0:
             w.append(f"REMOVE_WORKSPACE: '{name}' não encontrado.")
@@ -1560,33 +1450,34 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         if ws is None:
             w.append(f"ADD_TO_WORKSPACE: workspace '{op_dict['workspace']}' não encontrado.")
-
         elif obj is None:
             w.append(f"ADD_TO_WORKSPACE: objeto '{op_dict['object']}' não encontrado.")
-
-        elif obj.name not in ws.objects:
+        elif not any(str(o).lower() == obj.name.lower() for o in ws.objects):
             ws.objects.append(obj.name)
+
+            if not ws.primary_entity:
+                ws.primary_entity = obj.name
 
     elif op == "REMOVE_FROM_WORKSPACE":
         ws = _find_workspace(bp, op_dict["workspace"])
 
         if ws is None:
             w.append(f"REMOVE_FROM_WORKSPACE: workspace '{op_dict['workspace']}' não encontrado.")
-
         else:
             ol = op_dict["object"].lower()
             n0 = len(ws.objects)
 
-            ws.objects = [
-                o for o in ws.objects
-                if o.lower() != ol
-            ]
+            ws.objects = [o for o in ws.objects if str(o).lower() != ol]
+
+            if str(ws.primary_entity).lower() == ol:
+                ws.primary_entity = ws.objects[0] if ws.objects else ""
 
             if len(ws.objects) == n0:
                 w.append(
                     f"REMOVE_FROM_WORKSPACE: '{op_dict['object']}' não encontrado "
                     f"em '{op_dict['workspace']}'."
                 )
+
     elif op == "ADD_ACTION":
         p = op_dict.get("action") or {}
 
@@ -1636,10 +1527,8 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         if action is None:
             w.append(f"RENAME_ACTION: '{old}' não encontrada.")
-
         elif _find_action(bp, new):
             w.append(f"RENAME_ACTION: '{new}' já existe.")
-
         else:
             action.name = new
 
@@ -1649,7 +1538,6 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         if action is None:
             w.append(f"UPDATE_ACTION_TRIGGER: '{action_name}' não encontrada.")
-
         else:
             action.trigger = _normalize_trigger(op_dict["trigger"])
 
@@ -1659,35 +1547,29 @@ def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
 
         if action is None:
             w.append(f"UPDATE_ACTION_DESCRIPTION: '{action_name}' não encontrada.")
-
         else:
             action.description = str(op_dict["description"]).strip()
 
     elif op == "ADD_ENTITY_TO_ACTION":
         action_name = op_dict["action"]
         object_name = op_dict["object"]
-
         action = _find_action(bp, action_name)
         obj = _find_object(bp, object_name)
 
         if action is None:
             w.append(f"ADD_ENTITY_TO_ACTION: ação '{action_name}' não encontrada.")
-
         elif obj is None:
             w.append(f"ADD_ENTITY_TO_ACTION: objeto '{object_name}' não encontrado.")
-
         elif not any(str(entity).lower() == obj.name.lower() for entity in action.entities_involved):
             action.entities_involved.append(obj.name)
 
     elif op == "REMOVE_ENTITY_FROM_ACTION":
         action_name = op_dict["action"]
         object_name = op_dict["object"]
-
         action = _find_action(bp, action_name)
 
         if action is None:
             w.append(f"REMOVE_ENTITY_FROM_ACTION: ação '{action_name}' não encontrada.")
-
         else:
             ol = str(object_name).lower()
             n0 = len(action.entities_involved)
@@ -1725,13 +1607,13 @@ def _run_with_feedback_loop(
         logger.info(
             "Feedback loop iteração %d/%d",
             iteration,
-            MAX_FEEDBACK_ITERATIONS + 1
+            MAX_FEEDBACK_ITERATIONS + 1,
         )
 
         prompt_text = _build_ollama_prompt(
             user_prompt,
             schema_dict,
-            error_context
+            error_context,
         )
 
         try:
@@ -1750,7 +1632,6 @@ def _run_with_feedback_loop(
 
         if ops is None and "op" in diff:
             ops = [diff]
-
         elif ops is None:
             error_context = f"JSON sem 'operations': {json.dumps(diff)[:200]}"
             all_errors.append(error_context)
@@ -1765,17 +1646,13 @@ def _run_with_feedback_loop(
         all_errors.extend(errs)
         last_ops = ops
 
-        logger.warning(
-            "Iteração %d: Firewall bloqueou: %s",
-            iteration,
-            errs
-        )
+        logger.warning("Iteração %d: Firewall bloqueou: %s", iteration, errs)
 
     return last_ops, all_errors
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# GOLDEN DATASET
+# GOLDEN DATASET / TESTES
 # ─────────────────────────────────────────────────────────────────────────────
 
 def run_regression_tests() -> Dict[str, Any]:
@@ -1785,41 +1662,34 @@ def run_regression_tests() -> Dict[str, Any]:
                 "name": "Cliente",
                 "fields": [
                     {"name": "clienteid", "type": "integer"},
-                    {"name": "nome", "type": "string"}
-                ]
+                    {"name": "nome", "type": "string"},
+                ],
             },
             {
                 "name": "Produto",
                 "fields": [
                     {"name": "produtoid", "type": "integer"},
-                    {"name": "nome", "type": "string"}
-                ]
+                    {"name": "nome", "type": "string"},
+                ],
             },
         ],
         "relations": [
-            {"from": "Cliente", "to": "Produto", "type": "ONE_TO_MANY"}
+            {"from": "Cliente", "to": "Produto", "type": "ONE_TO_MANY"},
         ],
         "workspaces": [
             {
                 "name": "Backoffice",
                 "objects": ["Cliente", "Produto"],
                 "primary_entity": "Cliente",
-                "permissions": ["VER"]
-            }
+                "permissions": ["VER"],
+            },
         ],
         "actions": [],
     }
 
-    results = {}
+    results: Dict[str, Any] = {}
 
-    ops1 = [
-        {
-            "op": "ADD_FIELD",
-            "object": "produto",
-            "field": {"name": "preco", "type": "float"}
-        }
-    ]
-
+    ops1 = [{"op": "ADD_FIELD", "object": "produto", "field": {"name": "preco", "type": "float"}}]
     ok1, _ = _validate_diff(ops1)
     bp1 = parse_blueprint(base_schema)
     _apply_operation(bp1, ops1[0])
@@ -1831,49 +1701,32 @@ def run_regression_tests() -> Dict[str, Any]:
         "tipo_criado": campo.type if campo else None,
     }
 
-    ops2 = [
-        {
-            "op": "RENAME_OBJECT",
-            "old_name": "cliente",
-            "new_name": "utilizador"
-        }
-    ]
-
+    ops2 = [{"op": "RENAME_OBJECT", "old_name": "cliente", "new_name": "Utilizador"}]
     ok2, _ = _validate_diff(ops2)
     bp2 = parse_blueprint(base_schema)
     _apply_operation(bp2, ops2[0])
-    nomes = [o.name.lower() for o in bp2.objects]
-    ws_obs = [o.lower() for o in (bp2.workspaces[0].objects if bp2.workspaces else [])]
-    rel_from = bp2.relations[0].from_obj.lower() if bp2.relations else ""
+    nomes = [o.name for o in bp2.objects]
+    ws_obs = bp2.workspaces[0].objects if bp2.workspaces else []
+    rel_from = bp2.relations[0].from_obj if bp2.relations else ""
 
     results["caso_2_rename_propagado"] = {
         "passou": bool(
             ok2
-            and "utilizador" in nomes
-            and "utilizador" in ws_obs
-            and rel_from == "utilizador"
+            and "Utilizador" in nomes
+            and "Utilizador" in ws_obs
+            and rel_from == "Utilizador"
         ),
-        "workspace_atualizado": "utilizador" in ws_obs,
-        "relation_atualizada": rel_from == "utilizador",
+        "workspace_atualizado": "Utilizador" in ws_obs,
+        "relation_atualizada": rel_from == "Utilizador",
     }
 
-    ops3 = [
-        {
-            "op": "ADD_TO_WORKSPACE",
-            "workspace": "NaoExiste",
-            "object": "produto"
-        }
-    ]
-
+    ops3 = [{"op": "ADD_TO_WORKSPACE", "workspace": "NaoExiste", "object": "produto"}]
     ok3, _ = _validate_diff(ops3)
     bp3 = parse_blueprint(base_schema)
     warns3 = _apply_operation(bp3, ops3[0])
 
     results["caso_3_ws_inexistente"] = {
-        "passou": bool(
-            any("não encontrado" in w for w in warns3)
-            and len(bp3.workspaces) == 1
-        ),
+        "passou": bool(any("não encontrado" in w for w in warns3) and len(bp3.workspaces) == 1),
         "warning": warns3,
     }
 
@@ -1886,28 +1739,23 @@ def run_regression_tests() -> Dict[str, Any]:
     try:
         parsed = _parse_llm_json(raw_com_think)
         results["caso_4_think_tags"] = {
-            "passou": "operations" in parsed
-            and parsed["operations"][0]["op"] == "ADD_FIELD",
+            "passou": "operations" in parsed and parsed["operations"][0]["op"] == "ADD_FIELD",
         }
     except Exception as e:
-        results["caso_4_think_tags"] = {
-            "passou": False,
-            "erro": str(e)
-        }
+        results["caso_4_think_tags"] = {"passou": False, "erro": str(e)}
 
     try:
         _parse_llm_json("")
         results["caso_5_string_vazia"] = {
             "passou": False,
-            "erro": "devia ter lançado ValueError"
+            "erro": "devia ter lançado ValueError",
         }
     except ValueError as e:
         results["caso_5_string_vazia"] = {
             "passou": True,
-            "mensagem": str(e)[:80]
+            "mensagem": str(e)[:80],
         }
 
-    # Casos determinísticos novos
     bp4 = parse_blueprint({
         "objects": [
             {
@@ -1915,20 +1763,16 @@ def run_regression_tests() -> Dict[str, Any]:
                 "fields": [
                     {"name": "livroid", "type": "integer"},
                     {"name": "titulo", "type": "string"},
-                    {"name": "preco", "type": "float"}
-                ]
-            }
+                    {"name": "preco", "type": "float"},
+                ],
+            },
         ],
         "relations": [],
         "workspaces": [],
         "actions": [],
     })
 
-    ops4 = _rule_based_operations(
-        "renomeia o campo preco para valor_unitario",
-        bp4
-    )
-
+    ops4 = _rule_based_operations("renomeia o campo preco para valor_unitario", bp4)
     results["caso_6_rule_rename_field"] = {
         "passou": bool(
             ops4
@@ -1936,28 +1780,16 @@ def run_regression_tests() -> Dict[str, Any]:
             and ops4[0]["old_name"] == "preco"
             and ops4[0]["new_name"] == "valor_unitario"
         ),
-        "ops": ops4
+        "ops": ops4,
     }
 
-    ops5 = _rule_based_operations(
-        "remove o campo titulo",
-        bp4
-    )
-
+    ops5 = _rule_based_operations("remove o campo titulo", bp4)
     results["caso_7_rule_remove_field"] = {
-        "passou": bool(
-            ops5
-            and ops5[0]["op"] == "REMOVE_FIELD"
-            and ops5[0]["field_name"] == "titulo"
-        ),
-        "ops": ops5
+        "passou": bool(ops5 and ops5[0]["op"] == "REMOVE_FIELD" and ops5[0]["field_name"] == "titulo"),
+        "ops": ops5,
     }
 
-    ops6 = _rule_based_operations(
-        "adiciona o campo stock como integer",
-        bp4
-    )
-
+    ops6 = _rule_based_operations("adiciona o campo stock como integer", bp4)
     results["caso_8_rule_add_field"] = {
         "passou": bool(
             ops6
@@ -1965,7 +1797,90 @@ def run_regression_tests() -> Dict[str, Any]:
             and ops6[0]["field"]["name"] == "stock"
             and ops6[0]["field"]["type"] == "integer"
         ),
-        "ops": ops6
+        "ops": ops6,
+    }
+
+    bp5 = parse_blueprint({
+        "objects": [
+            {"name": "Trabalho", "fields": [{"name": "nome", "type": "string"}]},
+            {"name": "Livro", "fields": [{"name": "titulo", "type": "string"}]},
+        ],
+        "relations": [],
+        "workspaces": [],
+        "actions": [],
+    })
+
+    ops7 = _rule_based_operations("cria uma ação AprovarTrabalho para o objeto Trabalho", bp5)
+    results["caso_9_rule_add_action"] = {
+        "passou": bool(
+            len(ops7) == 1
+            and ops7[0]["op"] == "ADD_ACTION"
+            and ops7[0]["action"]["name"] == "AprovarTrabalho"
+            and ops7[0]["action"]["entities_involved"] == ["Trabalho"]
+        ),
+        "ops": ops7,
+    }
+
+    _apply_operation(bp5, ops7[0])
+    ops8 = _rule_based_operations("renomeia a ação AprovarTrabalho para ValidarTrabalho", bp5)
+    results["caso_10_rule_rename_action"] = {
+        "passou": bool(
+            ops8
+            and ops8[0]["op"] == "RENAME_ACTION"
+            and ops8[0]["old_name"] == "AprovarTrabalho"
+            and ops8[0]["new_name"] == "ValidarTrabalho"
+        ),
+        "ops": ops8,
+    }
+
+    _apply_operation(bp5, ops8[0])
+    ops9 = _rule_based_operations("muda o trigger da ação ValidarTrabalho para automated", bp5)
+    results["caso_11_rule_update_action_trigger"] = {
+        "passou": bool(
+            ops9
+            and ops9[0]["op"] == "UPDATE_ACTION_TRIGGER"
+            and ops9[0]["action"] == "ValidarTrabalho"
+            and ops9[0]["trigger"] == "automated"
+        ),
+        "ops": ops9,
+    }
+
+    ops10 = _rule_based_operations("adiciona o objeto Livro à ação ValidarTrabalho", bp5)
+    results["caso_12_rule_add_entity_to_action"] = {
+        "passou": bool(
+            ops10
+            and ops10[0]["op"] == "ADD_ENTITY_TO_ACTION"
+            and ops10[0]["action"] == "ValidarTrabalho"
+            and ops10[0]["object"] == "Livro"
+        ),
+        "ops": ops10,
+    }
+
+    bp6 = parse_blueprint({
+        "objects": [
+            {"name": "Trabalho", "fields": [{"name": "nome", "type": "string"}]},
+        ],
+        "relations": [],
+        "workspaces": [],
+        "actions": [
+            {
+                "name": "ValidarTrabalho",
+                "type": "DOMAIN_ACTION",
+                "description": "Validar trabalho",
+                "trigger": "manual",
+                "entities_involved": ["Trabalho"],
+                "steps": [],
+                "preconditions": [],
+                "postconditions": [],
+            },
+        ],
+    })
+
+    _apply_operation(bp6, {"op": "RENAME_OBJECT", "old_name": "Trabalho", "new_name": "ProjetoFinal"})
+    action = _find_action(bp6, "ValidarTrabalho")
+    results["caso_13_rename_object_propagates_actions"] = {
+        "passou": bool(action and action.entities_involved == ["ProjetoFinal"]),
+        "entities": action.entities_involved if action else [],
     }
 
     total = len(results)
@@ -1974,7 +1889,7 @@ def run_regression_tests() -> Dict[str, Any]:
     results["_sumario"] = {
         "total": total,
         "passou": passed,
-        "taxa": f"{passed}/{total}"
+        "taxa": f"{passed}/{total}",
     }
 
     return results
@@ -1990,32 +1905,24 @@ def handle_update_schema(
     *,
     strict: bool = False,
 ) -> Dict[str, Any]:
-
-    bp = parse_blueprint(
-        current_schema if isinstance(current_schema, dict) else {}
-    )
+    bp = parse_blueprint(current_schema if isinstance(current_schema, dict) else {})
 
     logger.info(
-        "prompt='%s' | objects=%d | relations=%d | workspaces=%d",
+        "prompt='%s' | objects=%d | relations=%d | actions=%d | workspaces=%d",
         prompt,
         len(bp.objects),
         len(bp.relations),
-        len(bp.workspaces)
+        len(bp.actions),
+        len(bp.workspaces),
     )
 
-    # Primeiro tenta resolver operações simples sem LLM.
-    # Isto torna estáveis operações comuns como:
-    # remove campo, renomeia campo, muda tipo, adiciona campo, adiciona objeto.
     operations = _rule_based_operations(prompt, bp)
     firewall_errors: List[str] = []
 
     if operations:
         logger.info("Operação simples detetada sem LLM: %s", operations)
     else:
-        operations, firewall_errors = _run_with_feedback_loop(
-            prompt,
-            bp.to_dict()
-        )
+        operations, firewall_errors = _run_with_feedback_loop(prompt, bp.to_dict())
 
     if not operations and firewall_errors:
         return _error_response(bp, firewall_errors)
@@ -2027,19 +1934,12 @@ def handle_update_schema(
             return _error_response(bp, remaining)
 
         clean = []
-
         for op in operations:
             s_ok, _ = _validate_diff([op])
-
             if s_ok:
                 clean.append(op)
 
-        logger.warning(
-            "Strict=False: %d/%d ops válidas",
-            len(clean),
-            len(operations)
-        )
-
+        logger.warning("Strict=False: %d/%d ops válidas", len(clean), len(operations))
         operations = clean
 
     bp_copy = parse_blueprint(bp.to_dict())
@@ -2066,11 +1966,12 @@ def handle_update_schema(
     final = parse_blueprint(bp_copy.to_dict())
 
     logger.info(
-        "Concluído: %d ops | objects=%d | relations=%d | workspaces=%d",
+        "Concluído: %d ops | objects=%d | relations=%d | actions=%d | workspaces=%d",
         len(applied),
         len(final.objects),
         len(final.relations),
-        len(final.workspaces)
+        len(final.actions),
+        len(final.workspaces),
     )
 
     return {
@@ -2106,7 +2007,6 @@ def _error_response(bp: BlueprintModel, errors: List[str]) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     print("\nAiBizCore — Golden Dataset\n")
-
     r = run_regression_tests()
 
     for name, res in r.items():
