@@ -4,6 +4,7 @@
 
 import time
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 from planner import generate_plan
 from generator_objects import generate_objects
@@ -21,7 +22,7 @@ from cache import verificar_cache, guardar_na_cache
 from canonical_schema import apply_canonical_schema
 from storage import save_schema
 
-MAX_RETRIES = 1
+MAX_RETRIES = 2
 
 
 def log(message: str):
@@ -77,29 +78,29 @@ def handle_create_system(prompt: str):
                 log("[planner] erro ao gerar plano")
                 continue
 
+           def safe_call(name, func, *args):
             try:
-                objects = generate_objects(plan)
+                return func(*args)
             except Exception as e:
-                log(f"[generator_objects] erro: {e}")
-                objects = {}
+                log(f"[{name}] erro: {e}")
+                return {}
 
-            try:
-                relations = generate_relations(plan)
-            except Exception as e:
-                log(f"[generator_relations] erro: {e}")
-                relations = {}
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                future_objects = executor.submit(safe_call, "generator_objects", generate_objects, plan)
+                future_relations = executor.submit(safe_call, "generator_relations", generate_relations, plan)
+                future_actions = executor.submit(safe_call, "generator_actions", generate_actions, plan)
 
-            try:
-                workspaces = generate_workspaces(plan)
-            except Exception as e:
-                log(f"[generator_workspaces] erro: {e}")
-                workspaces = {}
+                objects = future_objects.result()
+                relations = future_relations.result()
+                actions = future_actions.result()
 
-            try:
-                actions = generate_actions(plan)
-            except Exception as e:
-                log(f"[generator_actions] erro: {e}")
-                actions = {}
+            # Workspaces ficam depois dos objects para receberem os objetos finais
+            workspaces = safe_call(
+                "generator_workspaces",
+                generate_workspaces,
+                plan,
+                objects
+            )
 
             # aggregate_blueprint(objects, relations, actions, workspaces) — ordem do alias
             schema = aggregate_blueprint(objects, relations, actions, workspaces)
