@@ -439,6 +439,41 @@ def _find_object(bp: BlueprintModel, name: str) -> Optional[ObjectModel]:
 def _find_workspace(bp: BlueprintModel, name: str) -> Optional[WorkspaceModel]:
     nl = str(name or "").lower()
     return next((w for w in bp.workspaces if w.name.lower() == nl), None)
+def _norm_action_key(value: str) -> str:
+    """
+    Normaliza nomes de ações para comparação tolerante:
+    'Registar Venda', 'RegistarVenda' e 'registar_venda' ficam comparáveis.
+    """
+    value = str(value or "").strip().lower()
+
+    replacements = {
+        "ç": "c",
+        "á": "a",
+        "à": "a",
+        "â": "a",
+        "ã": "a",
+        "é": "e",
+        "ê": "e",
+        "í": "i",
+        "ó": "o",
+        "ô": "o",
+        "õ": "o",
+        "ú": "u",
+    }
+
+    for old, new in replacements.items():
+        value = value.replace(old, new)
+
+    return re.sub(r"[^a-z0-9]", "", value)
+
+
+def _find_action(bp: BlueprintModel, name: str):
+    target = _norm_action_key(name)
+
+    return next(
+        (a for a in bp.actions if _norm_action_key(a.name) == target),
+        None
+    )
 
 
 def _remove_object_from_all_workspaces(bp: BlueprintModel, name: str) -> None:
@@ -1102,185 +1137,185 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
         ),
         (
             r"(?:cria|criar|adiciona|adicionar)\s+"
-        r"(?:uma\s+)?(?:ação|acao|action)\s+(.+?)"
-        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-    ),
-]
+            r"(?:uma\s+)?(?:ação|acao|action)\s+(.+?)"
+            r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+        ),
+    ]
 
-for pattern in add_action_patterns:
-    for match in re.finditer(pattern, text, re.IGNORECASE):
-        action_name = _format_action_name(match.group(1))
-        entity = None
+    for pattern in add_action_patterns:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            action_name = _format_action_name(match.group(1))
+            entity = None
 
-        if len(match.groups()) >= 2:
-            entity = _resolve_object_name(match.group(2))
+            if len(match.groups()) >= 2:
+                entity = _resolve_object_name(match.group(2))
 
-        if not action_name:
-            continue
+            if not action_name:
+                continue
 
-        entities = [entity] if entity else []
+            entities = [entity] if entity else []
 
-        _add_op({
-            "op": "ADD_ACTION",
-            "action": {
-                "name": action_name,
-                "type": "DOMAIN_ACTION",
-                "description": f"{action_name} no sistema",
-                "trigger": "manual",
-                "entities_involved": entities,
-                "steps": [
-                    "validar dados necessários",
-                    "executar ação",
-                    "confirmar resultado"
-                ],
-                "preconditions": [
-                    f"{entity} deve existir" if entity else "condições necessárias devem estar reunidas"
-                ],
-                "postconditions": [
-                    "ação concluída"
-                ]
-            }
-        })
-
-# ─────────────────────────────────────────────────────────────────────
-# 15. REMOVE_ACTION
-# ─────────────────────────────────────────────────────────────────────
-
-remove_action_pattern = (
-    r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
-    r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)"
-    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-)
-
-for match in re.finditer(remove_action_pattern, text, re.IGNORECASE):
-    action_name = _resolve_action_name(match.group(1))
-
-    if action_name:
-        _add_op({
-            "op": "REMOVE_ACTION",
-            "name": action_name
-        })
-
-# ─────────────────────────────────────────────────────────────────────
-# 16. RENAME_ACTION
-# ─────────────────────────────────────────────────────────────────────
-
-rename_action_patterns = [
-    (
-        r"(?:renomeia|renomear)\s+"
-        r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)\s+"
-        r"(?:para|por)\s+(.+?)"
-        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-    ),
-    (
-        r"(?:troca|trocar|substitui|substituir)\s+"
-        r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)\s+"
-        r"(?:para|por)\s+(.+?)"
-        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-    ),
-]
-
-for pattern in rename_action_patterns:
-    for match in re.finditer(pattern, text, re.IGNORECASE):
-        old_name = _resolve_action_name(match.group(1))
-        new_name = _format_action_name(match.group(2))
-
-        if old_name and new_name:
             _add_op({
-                "op": "RENAME_ACTION",
-                "old_name": old_name,
-                "new_name": new_name
+                "op": "ADD_ACTION",
+                "action": {
+                    "name": action_name,
+                    "type": "DOMAIN_ACTION",
+                    "description": f"{action_name} no sistema",
+                    "trigger": "manual",
+                    "entities_involved": entities,
+                    "steps": [
+                        "validar dados necessários",
+                        "executar ação",
+                        "confirmar resultado"
+                    ],
+                    "preconditions": [
+                        f"{entity} deve existir" if entity else "condições necessárias devem estar reunidas"
+                    ],
+                    "postconditions": [
+                        "ação concluída"
+                    ]
+                }
             })
 
-# ─────────────────────────────────────────────────────────────────────
-# 17. UPDATE_ACTION_TRIGGER
-# ─────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # 15. REMOVE_ACTION
+    # ─────────────────────────────────────────────────────────────────────
 
-update_action_trigger_pattern = (
-    r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
-    r"(?:o\s+)?trigger\s+(?:da|de)\s+"
-    r"(?:ação|acao|action)\s+(.+?)\s+"
-    r"(?:para|como)\s+([a-zA-ZÀ-ÿ0-9_]+)"
-    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-)
+    remove_action_pattern = (
+        r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
+        r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    )
 
-for match in re.finditer(update_action_trigger_pattern, text, re.IGNORECASE):
-    action_name = _resolve_action_name(match.group(1))
-    trigger = _normalize_trigger(match.group(2))
+    for match in re.finditer(remove_action_pattern, text, re.IGNORECASE):
+        action_name = _resolve_action_name(match.group(1))
 
-    if action_name:
-        _add_op({
-            "op": "UPDATE_ACTION_TRIGGER",
-            "action": action_name,
-            "trigger": trigger
-        })
+        if action_name:
+            _add_op({
+                    "op": "REMOVE_ACTION",
+                "name": action_name
+            })
 
-# ─────────────────────────────────────────────────────────────────────
-# 18. UPDATE_ACTION_DESCRIPTION
-# ─────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # 16. RENAME_ACTION
+    # ─────────────────────────────────────────────────────────────────────
 
-update_action_description_pattern = (
-    r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
-    r"(?:a\s+)?(?:descrição|descricao)\s+(?:da|de)\s+"
-    r"(?:ação|acao|action)\s+(.+?)\s+"
-    r"(?:para|como)\s+(.+?)"
-    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-)
+    rename_action_patterns = [
+        (
+            r"(?:renomeia|renomear)\s+"
+            r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)\s+"
+            r"(?:para|por)\s+(.+?)"
+            r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+        ),
+        (
+            r"(?:troca|trocar|substitui|substituir)\s+"
+            r"(?:a\s+)?(?:ação|acao|action)\s+(.+?)\s+"
+            r"(?:para|por)\s+(.+?)"
+            r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+        ),
+    ]
 
-for match in re.finditer(update_action_description_pattern, text, re.IGNORECASE):
-    action_name = _resolve_action_name(match.group(1))
-    description = str(match.group(2)).strip().strip("'\"“”‘’")
+    for pattern in rename_action_patterns:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            old_name = _resolve_action_name(match.group(1))
+            new_name = _format_action_name(match.group(2))
 
-    if action_name and description:
-        _add_op({
-            "op": "UPDATE_ACTION_DESCRIPTION",
-            "action": action_name,
-            "description": description
-        })
+            if old_name and new_name:
+                _add_op({
+                    "op": "RENAME_ACTION",
+                    "old_name": old_name,
+                    "new_name": new_name
+                })
 
-# ─────────────────────────────────────────────────────────────────────
-# 19. ADD_ENTITY_TO_ACTION
-# ─────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # 17. UPDATE_ACTION_TRIGGER
+    # ─────────────────────────────────────────────────────────────────────
 
-add_entity_to_action_pattern = (
-    r"(?:adiciona|adicionar|mete|coloca)\s+"
-    r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
-    r"(?:à|a|na|no)\s+(?:ação|acao|action)\s+(.+?)"
-    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-)
+    update_action_trigger_pattern = (
+        r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
+        r"(?:o\s+)?trigger\s+(?:da|de)\s+"
+        r"(?:ação|acao|action)\s+(.+?)\s+"
+        r"(?:para|como)\s+([a-zA-ZÀ-ÿ0-9_]+)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    )
 
-for match in re.finditer(add_entity_to_action_pattern, text, re.IGNORECASE):
-    obj_name = _resolve_object_name(match.group(1))
-    action_name = _resolve_action_name(match.group(2))
+    for match in re.finditer(update_action_trigger_pattern, text, re.IGNORECASE):
+        action_name = _resolve_action_name(match.group(1))
+        trigger = _normalize_trigger(match.group(2))
 
-    if obj_name and action_name:
-        _add_op({
-            "op": "ADD_ENTITY_TO_ACTION",
-            "action": action_name,
-            "object": obj_name
-        })
+        if action_name:
+            _add_op({
+                "op": "UPDATE_ACTION_TRIGGER",
+                "action": action_name,
+                "trigger": trigger
+            })
 
-# ─────────────────────────────────────────────────────────────────────
-# 20. REMOVE_ENTITY_FROM_ACTION
-# ─────────────────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────
+    # 18. UPDATE_ACTION_DESCRIPTION
+    # ─────────────────────────────────────────────────────────────────────
 
-remove_entity_from_action_pattern = (
-    r"(?:remove|remover|retira|tirar)\s+"
-    r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
-    r"(?:da|de|na|no)\s+(?:ação|acao|action)\s+(.+?)"
-    r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
-)
+    update_action_description_pattern = (
+        r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
+        r"(?:a\s+)?(?:descrição|descricao)\s+(?:da|de)\s+"
+        r"(?:ação|acao|action)\s+(.+?)\s+"
+        r"(?:para|como)\s+(.+?)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    )
 
-for match in re.finditer(remove_entity_from_action_pattern, text, re.IGNORECASE):
-    obj_name = _resolve_object_name(match.group(1))
-    action_name = _resolve_action_name(match.group(2))
+    for match in re.finditer(update_action_description_pattern, text, re.IGNORECASE):
+        action_name = _resolve_action_name(match.group(1))
+        description = str(match.group(2)).strip().strip("'\"“”‘’")
 
-    if obj_name and action_name:
-        _add_op({
-            "op": "REMOVE_ENTITY_FROM_ACTION",
-            "action": action_name,
-            "object": obj_name
-        })
+        if action_name and description:
+            _add_op({
+                "op": "UPDATE_ACTION_DESCRIPTION",
+                "action": action_name,
+                "description": description
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 19. ADD_ENTITY_TO_ACTION
+    # ─────────────────────────────────────────────────────────────────────
+
+    add_entity_to_action_pattern = (
+        r"(?:adiciona|adicionar|mete|coloca)\s+"
+        r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
+        r"(?:à|a|na|no)\s+(?:ação|acao|action)\s+(.+?)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    )
+
+    for match in re.finditer(add_entity_to_action_pattern, text, re.IGNORECASE):
+        obj_name = _resolve_object_name(match.group(1))
+        action_name = _resolve_action_name(match.group(2))
+
+        if obj_name and action_name:
+            _add_op({
+                "op": "ADD_ENTITY_TO_ACTION",
+                "action": action_name,
+                "object": obj_name
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 20. REMOVE_ENTITY_FROM_ACTION
+    # ─────────────────────────────────────────────────────────────────────
+
+    remove_entity_from_action_pattern = (
+        r"(?:remove|remover|retira|tirar)\s+"
+        r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
+        r"(?:da|de|na|no)\s+(?:ação|acao|action)\s+(.+?)"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|altera|cria|apaga|elimina|retira)\b)"
+    )
+
+    for match in re.finditer(remove_entity_from_action_pattern, text, re.IGNORECASE):
+        obj_name = _resolve_object_name(match.group(1))
+        action_name = _resolve_action_name(match.group(2))
+
+        if obj_name and action_name:
+            _add_op({
+                "op": "REMOVE_ENTITY_FROM_ACTION",
+                "action": action_name,
+                "object": obj_name
+            })
 
     return operations
 
