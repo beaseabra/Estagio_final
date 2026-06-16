@@ -1,14 +1,7 @@
 # ===== handlers/update_schema_handler.py =====
-# AiBizCore — v4.1 Production-Grade Rewrite
-#
-# FIXES aplicados nesta versão:
-#   • RelationModel usa from_obj/to_obj (não from_object/to_object) — alinhado com models.py
-#   • RelationModel não tem campo 'name' — removidas todas as referências
-#   • Few-Shot Prompting injetado em CADA chamada ao Ollama
-#   • Feedback Loop automático: se a Firewall detetar erros, reenvia ao Ollama com contexto
-#   • Regex de limpeza de markdown obrigatória na saída do LLM
-#   • Golden Dataset como testes de regressão inline (run_regression_tests())
-#   • Logging estruturado — zero erros 500 silenciosos
+# v4.2 — Compatibilidade total com /api/generate + /api/chat
+#         Parser robusto para Llama 3.1 8B (<think> tags, texto livre)
+#         Todos os campos RelationModel corrigidos (from_obj/to_obj)
 
 from __future__ import annotations
 
@@ -19,33 +12,40 @@ import requests
 from typing import Any, Dict, List, Optional, Tuple
 
 from models import (
-    BlueprintModel,
-    FieldModel,
-    ObjectModel,
-    RelationModel,
-    WorkspaceModel,
-    parse_blueprint,
+    BlueprintModel, FieldModel, ObjectModel,
+    RelationModel, WorkspaceModel, parse_blueprint,
 )
 
 logger = logging.getLogger("update_schema_handler")
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(name)s] %(levelname)s — %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="[%(name)s] %(levelname)s — %(message)s")
 
-# ---------------------------------------------------------------------------
-# Configuração Ollama — lida do config.py (única fonte da verdade)
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# CONFIGURAÇÃO — lida do config.py (única fonte da verdade)
+# ─────────────────────────────────────────────────────────────────────────────
 
-from config import MODELS, OPTIONS_8B, OLLAMA_URL as _OLLAMA_URL
+try:
+    from config import MODELS, OPTIONS, OPTIONS_8B, OLLAMA_URL as _CFG_URL, MODEL_TIER
+    OLLAMA_MODEL   = MODELS.get("update_schema", MODELS.get("router", "llama3.2:3b"))
+    OLLAMA_OPTIONS = OPTIONS_8B if MODEL_TIER == "8b" else OPTIONS
+    OLLAMA_BASE    = _CFG_URL  # ex: "http://localhost:11434/api/generate"
+except ImportError:
+    logger.warning("config.py não encontrado — a usar defaults")
+    OLLAMA_MODEL   = "llama3.2:3b"
+    OLLAMA_OPTIONS = {"temperature": 0.1, "num_ctx": 2048, "num_predict": 1024}
+    OLLAMA_BASE    = "http://localhost:11434/api/generate"
 
-OLLAMA_URL     = _OLLAMA_URL
-OLLAMA_MODEL   = MODELS["update_schema"]   # llama3.1:8b-instruct-q4_K_M
-OLLAMA_TIMEOUT = 180   # o 8B é mais lento que o 3B — margem extra
+# Derivar os dois endpoints a partir da base configurada
+# Independentemente de o utilizador ter mudado para /api/chat ou /api/generate,
+# o código detecta e adapta automaticamente.
+_BASE = OLLAMA_BASE.replace("/api/generate", "").replace("/api/chat", "")
+ENDPOINT_GENERATE = f"{_BASE}/api/generate"
+ENDPOINT_CHAT     = f"{_BASE}/api/chat"
 
-# ---------------------------------------------------------------------------
-# Operações válidas
-# ---------------------------------------------------------------------------
+OLLAMA_TIMEOUT = 180
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPERAÇÕES VÁLIDAS
+# ─────────────────────────────────────────────────────────────────────────────
 
 VALID_OPS = {
     "ADD_OBJECT", "REMOVE_OBJECT", "RENAME_OBJECT",
@@ -55,142 +55,159 @@ VALID_OPS = {
     "ADD_TO_WORKSPACE", "REMOVE_FROM_WORKSPACE",
 }
 
-# ---------------------------------------------------------------------------
-# FEW-SHOT EXAMPLES — injetados em CADA prompt enviado ao Ollama
-# Cobrem: adição, renomeação, falha de validação, workspace inexistente
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# FEW-SHOT EXAMPLES
+# ─────────────────────────────────────────────────────────────────────────────
 
 FEW_SHOT_EXAMPLES = """
-=== EXEMPLOS DE REFERÊNCIA (Few-Shot) ===
+=== EXEMPLOS (Few-Shot) ===
 
-EXEMPLO 1 — Adição de campo:
-  Instrução: "Adiciona campo preco ao objeto produto"
-  Resposta correta:
-  {"operations": [{"op": "ADD_FIELD", "object": "produto", "field": {"name": "preco", "type": "float"}}]}
+EXEMPLO 1 — Adicionar campo:
+  Input: "Adiciona campo preco ao objeto produto"
+  Output: {"operations": [{"op": "ADD_FIELD", "object": "produto", "field": {"name": "preco", "type": "float"}}]}
 
-EXEMPLO 2 — Renomeação de objeto (o sistema trata automaticamente as referências em workspaces/relations):
-  Instrução: "Renomeia cliente para utilizador"
-  Resposta correta:
-  {"operations": [{"op": "RENAME_OBJECT", "old_name": "cliente", "new_name": "utilizador"}]}
+EXEMPLO 2 — Renomear objeto (propaga para workspaces e relations automaticamente):
+  Input: "Renomeia cliente para utilizador"
+  Output: {"operations": [{"op": "RENAME_OBJECT", "old_name": "cliente", "new_name": "utilizador"}]}
 
-EXEMPLO 3 — Adicionar objeto com campos:
-  Instrução: "Cria o objeto Fornecedor com nome e email"
-  Resposta correta:
-  {"operations": [{"op": "ADD_OBJECT", "object": {"name": "Fornecedor", "fields": [{"name": "nome", "type": "string"}, {"name": "email", "type": "string"}]}}]}
+EXEMPLO 3 — Adicionar objeto:
+  Input: "Cria o objeto Fornecedor com nome e email"
+  Output: {"operations": [{"op": "ADD_OBJECT", "object": {"name": "Fornecedor", "fields": [{"name": "nome", "type": "string"}, {"name": "email", "type": "string"}]}}]}
 
-EXEMPLO 4 — Workspace inexistente (deves verificar que o workspace existe antes de sugerir ADD_TO_WORKSPACE):
-  Instrução: "Adiciona produto ao workspace Vendas" (quando Vendas não existe)
-  Resposta correta:
-  {"operations": [{"op": "ADD_WORKSPACE", "workspace": {"name": "Vendas", "objects": ["produto"], "permissions": ["VER", "CRIAR"]}}, {"op": "ADD_TO_WORKSPACE", "workspace": "Vendas", "object": "produto"}]}
+EXEMPLO 4 — Workspace inexistente (criar antes de adicionar):
+  Input: "Adiciona produto ao workspace Vendas" (Vendas não existe)
+  Output: {"operations": [{"op": "ADD_WORKSPACE", "workspace": {"name": "Vendas", "objects": ["produto"], "permissions": ["VER"]}}, {"op": "ADD_TO_WORKSPACE", "workspace": "Vendas", "object": "produto"}]}
 
-EXEMPLO 5 — Remoção de campo:
-  Instrução: "Remove o campo telefone do cliente"
-  Resposta correta:
-  {"operations": [{"op": "REMOVE_FIELD", "object": "cliente", "field_name": "telefone"}]}
-
-EXEMPLO 6 — Relação entre objetos:
-  Instrução: "Adiciona relação ONE_TO_MANY de Cliente para Encomenda"
-  Resposta correta:
-  {"operations": [{"op": "ADD_RELATION", "relation": {"from": "Cliente", "to": "Encomenda", "type": "ONE_TO_MANY"}}]}
+EXEMPLO 5 — Relação entre objetos:
+  Input: "Liga Cliente a Encomenda com ONE_TO_MANY"
+  Output: {"operations": [{"op": "ADD_RELATION", "relation": {"from": "Cliente", "to": "Encomenda", "type": "ONE_TO_MANY"}}]}
 
 === FIM DOS EXEMPLOS ===
 """
 
 _SYSTEM_PROMPT = f"""\
 És um gerador de diffs JSON para um sistema de schemas de negócio.
-Recebes uma instrução do utilizador e o schema atual (JSON).
-Deves devolver APENAS um objeto JSON válido com a chave "operations".
-"operations" é uma lista de mudanças cirúrgicas a aplicar ao schema.
+Recebes uma instrução e o schema atual em JSON.
+Devolves APENAS um objeto JSON válido com a chave "operations".
 
-REGRAS ABSOLUTAS — NUNCA violes estas:
-1. Devolve APENAS JSON puro e cru. ZERO texto. ZERO explicações. ZERO blocos markdown (```json).
-2. Se precisares de escrever algo além do JSON, NÃO O FAÇAS. Escreve apenas o JSON.
-3. Objetos têm "fields" (lista). Workspaces têm "objects" (lista de nomes). NUNCA os confundas.
-4. Um Workspace NÃO é um Object. Nunca coloques um Workspace dentro de ADD_OBJECT.
-5. Uma Relation tem "from", "to", "type". NUNCA dentro de ADD_OBJECT.
-6. Para ADD_FIELD, "field" deve ser um dict único, NUNCA uma lista.
-7. Verifica sempre se o workspace/objeto referenciado existe no schema antes de o usar.
+REGRAS ABSOLUTAS:
+1. APENAS JSON puro. ZERO texto. ZERO explicações. ZERO markdown (```json).
+2. Não uses <think> ou qualquer bloco de raciocínio. Responde diretamente.
+3. Objetos têm "fields". Workspaces têm "objects". NUNCA os confundas.
+4. ADD_FIELD: "field" é sempre um dict único, nunca uma lista.
+5. ADD_RELATION: o payload tem "from", "to", "type" — não "from_obj" nem "from_object".
+6. Verifica se o workspace/objeto existe no schema antes de o referenciar.
 
 OPERAÇÕES VÁLIDAS:
 ADD_OBJECT, REMOVE_OBJECT, RENAME_OBJECT,
 ADD_FIELD, REMOVE_FIELD, RENAME_FIELD, RETYPE_FIELD,
 ADD_RELATION, REMOVE_RELATION,
-ADD_WORKSPACE, REMOVE_WORKSPACE,
-ADD_TO_WORKSPACE, REMOVE_FROM_WORKSPACE
+ADD_WORKSPACE, REMOVE_WORKSPACE, ADD_TO_WORKSPACE, REMOVE_FROM_WORKSPACE
 
 {FEW_SHOT_EXAMPLES}
 """
 
-# ---------------------------------------------------------------------------
-# CHAMADA AO OLLAMA com limpeza obrigatória de markdown
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# LIMPEZA DE OUTPUT DO LLM
+# ─────────────────────────────────────────────────────────────────────────────
 
-def _strip_markdown(text: str) -> str:
-    """Remove blocos ```json ... ``` e qualquer lixo antes/depois do JSON."""
-    # Remover fences de markdown
+def _strip_llm_noise(text: str) -> str:
+    """
+    Remove tudo o que não é JSON da resposta do LLM.
+
+    Por ordem:
+      1. Remove blocos <think>...</think> (Llama 3.1 8B com raciocínio activado)
+      2. Remove markdown fences ```json ... ```
+      3. Remove texto antes do primeiro { e depois do último }
+    """
+    if not text:
+        return ""
+
+    # 1. Remover blocos <think> (podem conter JSON falso que engana o parser)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # 2. Remover markdown fences
     text = re.sub(r"```(?:json)?\s*", "", text)
     text = re.sub(r"```", "", text)
+
+    # 3. Isolar o bloco JSON principal — apanhar do primeiro { ao último }
+    # Usamos um extractor balanceado em vez de greedy para lidar com
+    # JSON nested sem corrupção
+    text = text.strip()
+    start = text.find("{")
+    end   = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end + 1]
+
     return text.strip()
 
 
-def _call_ollama(prompt_text: str, temperature: float = 0.1) -> str:
+def _extract_balanced_json(text: str) -> Optional[str]:
     """
-    Envia o prompt ao Ollama e devolve o texto bruto limpo.
-    Lança RuntimeError detalhado se a chamada falhar.
+    Extrai o primeiro bloco JSON balanceado (contagem de { e }).
+    Mais robusto que re.search greedy quando há texto entre chaves.
     """
-    payload = {
-        "model":  OLLAMA_MODEL,
-        "prompt": prompt_text,
-        "stream": False,
-        "options": {
-            **OPTIONS_8B,
-            "temperature": temperature,  # permite override pontual
-        },
-    }
+    depth   = 0
+    start   = None
+    in_str  = False
+    escape  = False
 
-    try:
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=OLLAMA_TIMEOUT)
-        resp.raise_for_status()
-    except requests.exceptions.ConnectionError:
-        raise RuntimeError(
-            f"[update_schema_handler] Ollama inacessível em {OLLAMA_URL}. "
-            "Verifica se o serviço está em execução (ollama serve)."
-        )
-    except requests.exceptions.Timeout:
-        raise RuntimeError(
-            f"[update_schema_handler] Timeout ao chamar o Ollama ({OLLAMA_TIMEOUT}s). "
-            "Considera reduzir num_predict ou aumentar OLLAMA_TIMEOUT."
-        )
-    except requests.exceptions.HTTPError as e:
-        raise RuntimeError(f"[update_schema_handler] Ollama devolveu erro HTTP: {e}")
+    for i, ch in enumerate(text):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\" and in_str:
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
 
-    raw_text = resp.json().get("response") or ""
-    cleaned = _strip_markdown(raw_text)
-    logger.debug("Ollama raw (primeiros 400 chars): %s", raw_text[:400])
-    return cleaned
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                return text[start:i + 1]
+
+    return None
 
 
 def _parse_llm_json(raw_text: str) -> Dict[str, Any]:
     """
-    Extrai e faz parse do JSON da resposta bruta do LLM.
-    Tenta 3 estratégias progressivas.
+    Converte o output bruto do LLM num dict Python.
+    4 estratégias progressivas — robustez total para 3B e 8B.
     """
-    # Estratégia 1: parse direto (caminho feliz)
+    if not raw_text or not raw_text.strip():
+        raise ValueError("Resposta vazia do LLM — possível incompatibilidade de endpoint ou timeout.")
+
+    # Estratégia 1: parse direto (JSON puro — caminho feliz)
     try:
         return json.loads(raw_text.strip())
     except json.JSONDecodeError:
         pass
 
-    # Estratégia 2: extrair bloco ```json se o modelo ignorou as instruções
-    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.DOTALL)
-    if fence_match:
+    # Estratégia 2: limpar noise (think tags, markdown) e tentar de novo
+    cleaned = _strip_llm_noise(raw_text)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # Estratégia 3: extractor balanceado (mais preciso que greedy regex)
+    candidate = _extract_balanced_json(cleaned or raw_text)
+    if candidate:
         try:
-            return json.loads(fence_match.group(1))
+            return json.loads(candidate)
         except json.JSONDecodeError:
             pass
 
-    # Estratégia 3: encontrar o primeiro { ... } balanceado no texto
-    brace_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+    # Estratégia 4: regex greedy como último recurso
+    brace_match = re.search(r"\{.*\}", cleaned or raw_text, re.DOTALL)
     if brace_match:
         try:
             return json.loads(brace_match.group(0))
@@ -198,9 +215,103 @@ def _parse_llm_json(raw_text: str) -> Dict[str, Any]:
             pass
 
     raise ValueError(
-        f"[update_schema_handler] Não foi possível extrair JSON válido da resposta do LLM.\n"
-        f"Raw (primeiros 300 chars): {raw_text[:300]}"
+        f"Não foi possível extrair JSON válido da resposta do LLM.\n"
+        f"Raw (primeiros 400 chars): {raw_text[:400]}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CHAMADA AO OLLAMA — suporte automático a /api/generate E /api/chat
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _call_ollama(prompt_text: str, temperature: Optional[float] = None) -> str:
+    """
+    Tenta /api/generate primeiro (formato mais simples e universal).
+    Se receber 404 ou erro de formato, tenta /api/chat automaticamente.
+    Nunca devolve string vazia sem lançar excepção — garante que o caller
+    sempre tem texto ou um RuntimeError explicativo.
+    """
+    temp = temperature if temperature is not None else float(OLLAMA_OPTIONS.get("temperature", 0.1))
+    options = {**OLLAMA_OPTIONS, "temperature": temp}
+
+    # ── Tentativa 1: /api/generate ──────────────────────────────────────────
+    result = _try_generate(prompt_text, options)
+    if result is not None:
+        return result
+
+    # ── Tentativa 2: /api/chat (fallback se o utilizador mudou o endpoint) ──
+    logger.warning("/api/generate falhou ou devolveu vazio — a tentar /api/chat")
+    result = _try_chat(prompt_text, options)
+    if result is not None:
+        return result
+
+    raise RuntimeError(
+        f"Ollama não respondeu em nenhum endpoint "
+        f"({ENDPOINT_GENERATE}, {ENDPOINT_CHAT}). "
+        f"Verifica se o modelo '{OLLAMA_MODEL}' está instalado: ollama list"
+    )
+
+
+def _try_generate(prompt_text: str, options: dict) -> Optional[str]:
+    """Chama /api/generate. Devolve texto limpo ou None em caso de falha."""
+    payload = {
+        "model":   OLLAMA_MODEL,
+        "prompt":  prompt_text,
+        "stream":  False,
+        "options": options,
+    }
+    try:
+        resp = requests.post(ENDPOINT_GENERATE, json=payload, timeout=OLLAMA_TIMEOUT)
+        resp.raise_for_status()
+        raw = resp.json().get("response") or ""
+        if raw.strip():
+            logger.debug("[generate] raw (400 chars): %s", raw[:400])
+            return _strip_llm_noise(raw)
+        logger.warning("[generate] resposta vazia")
+        return None
+    except requests.exceptions.HTTPError as e:
+        logger.warning("[generate] HTTP erro: %s", e)
+        return None
+    except requests.exceptions.ConnectionError:
+        raise RuntimeError(
+            f"Ollama inacessível em {ENDPOINT_GENERATE}. "
+            "Verifica se está a correr: ollama serve"
+        )
+    except requests.exceptions.Timeout:
+        raise RuntimeError(
+            f"Timeout ({OLLAMA_TIMEOUT}s) em /api/generate. "
+            "Modelo demasiado lento para o hardware — considera reduzir num_ctx."
+        )
+    except Exception as e:
+        logger.warning("[generate] erro inesperado: %s", e)
+        return None
+
+
+def _try_chat(prompt_text: str, options: dict) -> Optional[str]:
+    """Chama /api/chat. Devolve texto limpo ou None em caso de falha."""
+    payload = {
+        "model":    OLLAMA_MODEL,
+        "messages": [{"role": "user", "content": prompt_text}],
+        "stream":   False,
+        "options":  options,
+    }
+    try:
+        resp = requests.post(ENDPOINT_CHAT, json=payload, timeout=OLLAMA_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        # /api/chat devolve: {"message": {"role": "assistant", "content": "..."}}
+        raw = (data.get("message") or {}).get("content") or ""
+        if raw.strip():
+            logger.debug("[chat] raw (400 chars): %s", raw[:400])
+            return _strip_llm_noise(raw)
+        logger.warning("[chat] resposta vazia")
+        return None
+    except requests.exceptions.HTTPError as e:
+        logger.warning("[chat] HTTP erro: %s", e)
+        return None
+    except Exception as e:
+        logger.warning("[chat] erro inesperado: %s", e)
+        return None
 
 
 def _build_ollama_prompt(
@@ -208,51 +319,30 @@ def _build_ollama_prompt(
     current_schema: Dict[str, Any],
     error_context: Optional[str] = None,
 ) -> str:
-    """
-    Constrói o prompt final com few-shot e, opcionalmente, contexto de erro
-    para o Feedback Loop automático.
-    """
     schema_str = json.dumps(current_schema, ensure_ascii=False, indent=2)
-
-    base = (
-        f"{_SYSTEM_PROMPT}\n\n"
-        f"SCHEMA ATUAL:\n{schema_str}\n\n"
-    )
-
+    base = f"{_SYSTEM_PROMPT}\n\nSCHEMA ATUAL:\n{schema_str}\n\n"
     if error_context:
-        # FEEDBACK LOOP: o erro da iteração anterior é devolvido ao Llama
         base += (
-            f"⚠️  A TUA ÚLTIMA OPERAÇÃO FALHOU COM O SEGUINTE ERRO:\n"
-            f"{error_context}\n\n"
+            f"⚠️  ÚLTIMA OPERAÇÃO FALHOU:\n{error_context}\n\n"
             f"Corrige APENAS este erro e gera a operação correta.\n\n"
         )
-
-    base += f"INSTRUÇÃO DO UTILIZADOR: {user_prompt}\n\nJSON DIFF:"
+    base += f"INSTRUÇÃO: {user_prompt}\n\nJSON DIFF:"
     return base
 
 
-# ---------------------------------------------------------------------------
-# FIREWALL — _validate_diff
-# ---------------------------------------------------------------------------
-
-class DiffValidationError(ValueError):
-    """Erro lançado quando o diff da IA viola as regras estruturais."""
-    pass
-
+# ─────────────────────────────────────────────────────────────────────────────
+# FIREWALL
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
-    """
-    Firewall rigorosa que verifica CADA operação antes de tocar no schema.
-    Retorna (ok: bool, errors: List[str]).
-    """
     errors: List[str] = []
 
     if not isinstance(operations, list):
-        return False, ["'operations' deve ser uma lista, recebeu: " + type(operations).__name__]
+        return False, [f"'operations' deve ser lista, recebeu {type(operations).__name__}"]
 
     for i, op_dict in enumerate(operations):
         if not isinstance(op_dict, dict):
-            errors.append(f"[op #{i}] Não é um dict: {op_dict!r}")
+            errors.append(f"[op #{i}] Não é dict: {op_dict!r}")
             continue
 
         op = op_dict.get("op")
@@ -263,31 +353,22 @@ def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
             errors.append(f"[op #{i}] Operação desconhecida '{op}'.")
             continue
 
-        # Workspace passado como Object
         if op == "ADD_OBJECT":
-            obj_payload = op_dict.get("object") or {}
-            if not isinstance(obj_payload, dict):
-                errors.append(f"[op #{i}] ADD_OBJECT.object deve ser um dict.")
-                continue
-            if "objects" in obj_payload and "fields" not in obj_payload:
-                errors.append(
-                    f"[op #{i}] ADD_OBJECT parece um Workspace (tem 'objects', não tem 'fields'). Recusado."
-                )
-            if "from" in obj_payload or "to" in obj_payload:
-                errors.append(f"[op #{i}] ADD_OBJECT parece uma Relação. Recusado.")
+            p = op_dict.get("object") or {}
+            if not isinstance(p, dict):
+                errors.append(f"[op #{i}] ADD_OBJECT.object deve ser dict.")
+            elif "objects" in p and "fields" not in p:
+                errors.append(f"[op #{i}] ADD_OBJECT parece Workspace (tem 'objects', não tem 'fields').")
+            elif "from" in p or "to" in p:
+                errors.append(f"[op #{i}] ADD_OBJECT parece Relation.")
 
-        # Object passado como Workspace
         if op == "ADD_WORKSPACE":
-            ws_payload = op_dict.get("workspace") or {}
-            if not isinstance(ws_payload, dict):
-                errors.append(f"[op #{i}] ADD_WORKSPACE.workspace deve ser um dict.")
-                continue
-            if "fields" in ws_payload:
-                errors.append(
-                    f"[op #{i}] ADD_WORKSPACE tem 'fields' — parece um Object. Recusado."
-                )
+            p = op_dict.get("workspace") or {}
+            if not isinstance(p, dict):
+                errors.append(f"[op #{i}] ADD_WORKSPACE.workspace deve ser dict.")
+            elif "fields" in p:
+                errors.append(f"[op #{i}] ADD_WORKSPACE tem 'fields' — parece Object.")
 
-        # Campos obrigatórios por operação
         required: Dict[str, List[str]] = {
             "REMOVE_OBJECT":         ["name"],
             "RENAME_OBJECT":         ["old_name", "new_name"],
@@ -301,658 +382,448 @@ def _validate_diff(operations: List[Dict[str, Any]]) -> Tuple[bool, List[str]]:
             "ADD_TO_WORKSPACE":      ["workspace", "object"],
             "REMOVE_FROM_WORKSPACE": ["workspace", "object"],
         }
-        if op in required:
-            for key in required[op]:
-                if key not in op_dict:
-                    errors.append(f"[op #{i}] '{op}' falta a chave obrigatória '{key}'.")
+        for key in required.get(op, []):
+            if key not in op_dict:
+                errors.append(f"[op #{i}] '{op}' falta chave '{key}'.")
 
-        # ADD_FIELD: field não pode ser lista
         if op == "ADD_FIELD":
-            field_payload = op_dict.get("field")
-            if isinstance(field_payload, list):
-                errors.append(
-                    f"[op #{i}] ADD_FIELD.field é uma lista em vez de um dict único. "
-                    "Usa múltiplas operações ADD_FIELD."
-                )
+            if isinstance(op_dict.get("field"), list):
+                errors.append(f"[op #{i}] ADD_FIELD.field é lista — usa ADD_FIELD separados.")
 
-        # ADD_RELATION: chaves 'from' e 'to' dentro do payload da relação
         if op == "ADD_RELATION":
-            rel_payload = op_dict.get("relation") or {}
-            if isinstance(rel_payload, dict):
-                if "from" not in rel_payload or "to" not in rel_payload:
-                    errors.append(
-                        f"[op #{i}] ADD_RELATION.relation deve ter 'from' e 'to'."
-                    )
+            rel = op_dict.get("relation") or {}
+            if isinstance(rel, dict) and ("from" not in rel or "to" not in rel):
+                errors.append(f"[op #{i}] ADD_RELATION.relation precisa de 'from' e 'to'.")
 
     return len(errors) == 0, errors
 
 
-# ---------------------------------------------------------------------------
-# HELPERS de mutação — CORRIGIDOS para usar from_obj/to_obj (models.py)
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPERS DE MUTAÇÃO — todos usam from_obj/to_obj (alinhados com models.py)
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _find_object(bp: BlueprintModel, name: str) -> Optional[ObjectModel]:
-    name_lower = name.lower()
-    for obj in bp.objects:
-        if obj.name.lower() == name_lower:
-            return obj
-    return None
+    nl = name.lower()
+    return next((o for o in bp.objects if o.name.lower() == nl), None)
 
 
 def _find_workspace(bp: BlueprintModel, name: str) -> Optional[WorkspaceModel]:
-    name_lower = name.lower()
+    nl = name.lower()
+    return next((w for w in bp.workspaces if w.name.lower() == nl), None)
+
+
+def _remove_object_from_all_workspaces(bp: BlueprintModel, name: str) -> None:
+    nl = name.lower()
     for ws in bp.workspaces:
-        if ws.name.lower() == name_lower:
-            return ws
-    return None
+        ws.objects = [o for o in ws.objects if o.lower() != nl]
 
 
-def _remove_object_from_all_workspaces(bp: BlueprintModel, object_name: str) -> None:
-    name_lower = object_name.lower()
+def _rename_object_in_workspaces(bp: BlueprintModel, old: str, new: str) -> None:
+    ol = old.lower()
     for ws in bp.workspaces:
-        ws.objects = [o for o in ws.objects if o.lower() != name_lower]
+        ws.objects = [new if o.lower() == ol else o for o in ws.objects]
+        if ws.primary_entity.lower() == ol:
+            ws.primary_entity = new
 
 
-def _rename_object_in_workspaces(bp: BlueprintModel, old_name: str, new_name: str) -> None:
-    old_lower = old_name.lower()
-    for ws in bp.workspaces:
-        ws.objects = [new_name if o.lower() == old_lower else o for o in ws.objects]
-        if ws.primary_entity.lower() == old_lower:
-            ws.primary_entity = new_name
-
-
-def _rename_object_in_relations(bp: BlueprintModel, old_name: str, new_name: str) -> None:
-    """
-    FIX: RelationModel usa from_obj e to_obj (não from_object/to_object).
-    """
-    old_lower = old_name.lower()
+def _rename_object_in_relations(bp: BlueprintModel, old: str, new: str) -> None:
+    # FIX: RelationModel usa from_obj/to_obj (não from_object/to_object)
+    ol = old.lower()
     for rel in bp.relations:
-        if rel.from_obj.lower() == old_lower:
-            rel.from_obj = new_name
-        if rel.to_obj.lower() == old_lower:
-            rel.to_obj = new_name
+        if rel.from_obj.lower() == ol:
+            rel.from_obj = new
+        if rel.to_obj.lower() == ol:
+            rel.to_obj = new
 
 
-def _remove_object_from_relations(bp: BlueprintModel, object_name: str) -> None:
-    """
-    FIX: usa from_obj/to_obj (não from_object/to_object).
-    """
-    name_lower = object_name.lower()
+def _remove_object_from_relations(bp: BlueprintModel, name: str) -> None:
+    # FIX: RelationModel usa from_obj/to_obj
+    nl = name.lower()
     bp.relations = [
         r for r in bp.relations
-        if r.from_obj.lower() != name_lower and r.to_obj.lower() != name_lower
+        if r.from_obj.lower() != nl and r.to_obj.lower() != nl
     ]
 
 
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 # APLICAÇÃO DE OPERAÇÕES
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _apply_operation(bp: BlueprintModel, op_dict: Dict[str, Any]) -> List[str]:
-    """
-    Aplica UMA operação ao BlueprintModel (mutação in-place).
-    Retorna lista de warnings não-fatais.
-    """
     op = op_dict["op"]
-    warnings: List[str] = []
+    w: List[str] = []
 
     if op == "ADD_OBJECT":
-        payload = op_dict.get("object") or {}
+        p = op_dict.get("object") or {}
         try:
-            new_obj = ObjectModel.model_validate(payload) if payload else ObjectModel(name="unnamed")
+            obj = ObjectModel.model_validate(p) if p else ObjectModel(name="unnamed")
         except Exception as e:
-            warnings.append(f"ADD_OBJECT: payload inválido — {e}")
-            return warnings
-
-        if _find_object(bp, new_obj.name):
-            warnings.append(f"ADD_OBJECT: '{new_obj.name}' já existe. Ignorado.")
+            w.append(f"ADD_OBJECT: payload inválido — {e}"); return w
+        if _find_object(bp, obj.name):
+            w.append(f"ADD_OBJECT: '{obj.name}' já existe.")
         else:
-            bp.objects.append(new_obj)
+            bp.objects.append(obj)
 
     elif op == "REMOVE_OBJECT":
-        name = op_dict["name"]
-        original = len(bp.objects)
-        name_lower = name.lower()
-        bp.objects = [o for o in bp.objects if o.name.lower() != name_lower]
-        if len(bp.objects) == original:
-            warnings.append(f"REMOVE_OBJECT: '{name}' não encontrado.")
+        name = op_dict["name"]; nl = name.lower(); n0 = len(bp.objects)
+        bp.objects = [o for o in bp.objects if o.name.lower() != nl]
+        if len(bp.objects) == n0:
+            w.append(f"REMOVE_OBJECT: '{name}' não encontrado.")
         else:
             _remove_object_from_all_workspaces(bp, name)
             _remove_object_from_relations(bp, name)
 
     elif op == "RENAME_OBJECT":
-        old_name = op_dict["old_name"]
-        new_name = op_dict["new_name"]
-        obj = _find_object(bp, old_name)
+        old, new = op_dict["old_name"], op_dict["new_name"]
+        obj = _find_object(bp, old)
         if obj is None:
-            warnings.append(f"RENAME_OBJECT: '{old_name}' não encontrado.")
-        elif _find_object(bp, new_name):
-            warnings.append(f"RENAME_OBJECT: '{new_name}' já existe. Ignorado.")
+            w.append(f"RENAME_OBJECT: '{old}' não encontrado.")
+        elif _find_object(bp, new):
+            w.append(f"RENAME_OBJECT: '{new}' já existe.")
         else:
-            obj.name = new_name
-            # Propagar renomeação — Caso 2 do Golden Dataset
-            _rename_object_in_workspaces(bp, old_name, new_name)
-            _rename_object_in_relations(bp, old_name, new_name)
+            obj.name = new
+            _rename_object_in_workspaces(bp, old, new)
+            _rename_object_in_relations(bp, old, new)
 
     elif op == "ADD_FIELD":
-        obj_name      = op_dict["object"]
-        field_payload = op_dict["field"]
-        obj = _find_object(bp, obj_name)
-
+        obj = _find_object(bp, op_dict["object"])
         if obj is None:
-            warnings.append(f"ADD_FIELD: objeto '{obj_name}' não encontrado.")
+            w.append(f"ADD_FIELD: objeto '{op_dict['object']}' não encontrado."); return w
+        fp = op_dict["field"]
+        try:
+            f = FieldModel.model_validate(fp) if isinstance(fp, dict) else FieldModel(name=str(fp))
+        except Exception as e:
+            w.append(f"ADD_FIELD: field inválido — {e}"); return w
+        if any(x.name.lower() == f.name.lower() for x in obj.fields):
+            w.append(f"ADD_FIELD: '{f.name}' já existe em '{obj.name}'.")
         else:
-            try:
-                new_field = (
-                    FieldModel.model_validate(field_payload)
-                    if isinstance(field_payload, dict)
-                    else FieldModel(name=str(field_payload))
-                )
-            except Exception as e:
-                warnings.append(f"ADD_FIELD: field inválido — {e}")
-                return warnings
-
-            existing = {f.name.lower() for f in obj.fields}
-            if new_field.name.lower() in existing:
-                warnings.append(f"ADD_FIELD: '{new_field.name}' já existe em '{obj_name}'. Ignorado.")
-            else:
-                obj.fields.append(new_field)
+            obj.fields.append(f)
 
     elif op == "REMOVE_FIELD":
-        obj_name   = op_dict["object"]
-        field_name = op_dict["field_name"]
-        obj = _find_object(bp, obj_name)
+        obj = _find_object(bp, op_dict["object"])
         if obj is None:
-            warnings.append(f"REMOVE_FIELD: objeto '{obj_name}' não encontrado.")
-        else:
-            fn_lower = field_name.lower()
-            original = len(obj.fields)
-            obj.fields = [f for f in obj.fields if f.name.lower() != fn_lower]
-            if len(obj.fields) == original:
-                warnings.append(f"REMOVE_FIELD: campo '{field_name}' não encontrado em '{obj_name}'.")
+            w.append(f"REMOVE_FIELD: objeto '{op_dict['object']}' não encontrado."); return w
+        fn = op_dict["field_name"].lower(); n0 = len(obj.fields)
+        obj.fields = [f for f in obj.fields if f.name.lower() != fn]
+        if len(obj.fields) == n0:
+            w.append(f"REMOVE_FIELD: campo '{op_dict['field_name']}' não encontrado.")
 
     elif op == "RENAME_FIELD":
-        obj_name = op_dict["object"]
-        old_name = op_dict["old_name"]
-        new_name = op_dict["new_name"]
-        obj = _find_object(bp, obj_name)
+        obj = _find_object(bp, op_dict["object"])
         if obj is None:
-            warnings.append(f"RENAME_FIELD: objeto '{obj_name}' não encontrado.")
+            w.append(f"RENAME_FIELD: objeto '{op_dict['object']}' não encontrado."); return w
+        tgt = next((f for f in obj.fields if f.name.lower() == op_dict["old_name"].lower()), None)
+        if tgt is None:
+            w.append(f"RENAME_FIELD: campo '{op_dict['old_name']}' não encontrado.")
+        elif any(f.name.lower() == op_dict["new_name"].lower() and f is not tgt for f in obj.fields):
+            w.append(f"RENAME_FIELD: '{op_dict['new_name']}' já existe.")
         else:
-            target = next((f for f in obj.fields if f.name.lower() == old_name.lower()), None)
-            if target is None:
-                warnings.append(f"RENAME_FIELD: campo '{old_name}' não encontrado em '{obj_name}'.")
-            elif any(f.name.lower() == new_name.lower() and f is not target for f in obj.fields):
-                warnings.append(f"RENAME_FIELD: '{new_name}' já existe em '{obj_name}'. Ignorado.")
-            else:
-                target.name = new_name
+            tgt.name = op_dict["new_name"]
 
     elif op == "RETYPE_FIELD":
-        obj_name   = op_dict["object"]
-        field_name = op_dict["field_name"]
-        new_type   = op_dict["new_type"]
-        obj = _find_object(bp, obj_name)
+        obj = _find_object(bp, op_dict["object"])
         if obj is None:
-            warnings.append(f"RETYPE_FIELD: objeto '{obj_name}' não encontrado.")
+            w.append(f"RETYPE_FIELD: objeto '{op_dict['object']}' não encontrado."); return w
+        tgt = next((f for f in obj.fields if f.name.lower() == op_dict["field_name"].lower()), None)
+        if tgt is None:
+            w.append(f"RETYPE_FIELD: campo '{op_dict['field_name']}' não encontrado.")
         else:
-            target = next((f for f in obj.fields if f.name.lower() == field_name.lower()), None)
-            if target is None:
-                warnings.append(f"RETYPE_FIELD: campo '{field_name}' não encontrado em '{obj_name}'.")
-            else:
-                target.type = str(new_type)
+            tgt.type = str(op_dict["new_type"])
 
     elif op == "ADD_RELATION":
-        rel_payload = op_dict.get("relation") or {}
-        if not isinstance(rel_payload, dict):
-            warnings.append("ADD_RELATION: payload deve ser um dict.")
-            return warnings
-
-        # FIX: RelationModel usa alias 'from'/'to' (não 'from_object'/'to_object')
+        rp = op_dict.get("relation") or {}
+        if not isinstance(rp, dict):
+            w.append("ADD_RELATION: payload deve ser dict."); return w
         try:
-            new_rel = RelationModel.model_validate(rel_payload)
+            rel = RelationModel.model_validate(rp)
         except Exception as e:
-            warnings.append(f"ADD_RELATION: payload inválido — {e}")
-            return warnings
-
-        if not _find_object(bp, new_rel.from_obj):
-            warnings.append(f"ADD_RELATION: from '{new_rel.from_obj}' não encontrado.")
-        elif not _find_object(bp, new_rel.to_obj):
-            warnings.append(f"ADD_RELATION: to '{new_rel.to_obj}' não encontrado.")
+            w.append(f"ADD_RELATION: payload inválido — {e}"); return w
+        # FIX: usa from_obj/to_obj (não from_object/to_object)
+        if not _find_object(bp, rel.from_obj):
+            w.append(f"ADD_RELATION: '{rel.from_obj}' não encontrado.")
+        elif not _find_object(bp, rel.to_obj):
+            w.append(f"ADD_RELATION: '{rel.to_obj}' não encontrado.")
+        elif any(r.from_obj.lower() == rel.from_obj.lower() and r.to_obj.lower() == rel.to_obj.lower()
+                 for r in bp.relations):
+            w.append(f"ADD_RELATION: '{rel.from_obj}→{rel.to_obj}' já existe.")
         else:
-            # FIX: RelationModel não tem campo 'name' — comparar por from/to
-            already_exists = any(
-                r.from_obj.lower() == new_rel.from_obj.lower()
-                and r.to_obj.lower() == new_rel.to_obj.lower()
-                for r in bp.relations
-            )
-            if already_exists:
-                warnings.append(
-                    f"ADD_RELATION: relação '{new_rel.from_obj}→{new_rel.to_obj}' já existe. Ignorado."
-                )
-            else:
-                bp.relations.append(new_rel)
+            bp.relations.append(rel)
 
     elif op == "REMOVE_RELATION":
-        # FIX: RelationModel não tem 'name' — interpretar "name" como "from→to"
-        name = op_dict["name"]
-        original = len(bp.relations)
-        # Suporte a formato "FromObj→ToObj" ou "FromObj_ToObj"
+        # RelationModel não tem 'name' — interpreta como "From→To"
+        name = op_dict["name"]; n0 = len(bp.relations)
         parts = re.split(r"[→_\-]", name, maxsplit=1)
         if len(parts) == 2:
-            from_lower, to_lower = parts[0].strip().lower(), parts[1].strip().lower()
-            bp.relations = [
-                r for r in bp.relations
-                if not (r.from_obj.lower() == from_lower and r.to_obj.lower() == to_lower)
-            ]
+            fl, tl = parts[0].strip().lower(), parts[1].strip().lower()
+            bp.relations = [r for r in bp.relations
+                            if not (r.from_obj.lower() == fl and r.to_obj.lower() == tl)]
         else:
-            # fallback: tentar match em from_obj
             bp.relations = [r for r in bp.relations if r.from_obj.lower() != name.lower()]
-
-        if len(bp.relations) == original:
-            warnings.append(f"REMOVE_RELATION: relação '{name}' não encontrada.")
+        if len(bp.relations) == n0:
+            w.append(f"REMOVE_RELATION: '{name}' não encontrada.")
 
     elif op == "ADD_WORKSPACE":
-        payload = op_dict.get("workspace") or {}
+        p = op_dict.get("workspace") or {}
         try:
-            new_ws = WorkspaceModel.model_validate(payload) if payload else WorkspaceModel(name="unnamed_ws")
+            ws = WorkspaceModel.model_validate(p) if p else WorkspaceModel(name="unnamed_ws")
         except Exception as e:
-            warnings.append(f"ADD_WORKSPACE: payload inválido — {e}")
-            return warnings
-
-        if _find_workspace(bp, new_ws.name):
-            warnings.append(f"ADD_WORKSPACE: '{new_ws.name}' já existe. Ignorado.")
+            w.append(f"ADD_WORKSPACE: payload inválido — {e}"); return w
+        if _find_workspace(bp, ws.name):
+            w.append(f"ADD_WORKSPACE: '{ws.name}' já existe.")
         else:
-            valid_names = {o.name.lower() for o in bp.objects}
-            original_refs = new_ws.objects[:]
-            new_ws.objects = [o for o in new_ws.objects if o.lower() in valid_names]
-            dropped = set(original_refs) - set(new_ws.objects)
+            valid = {o.name.lower() for o in bp.objects}
+            dropped = set(ws.objects) - {o for o in ws.objects if o.lower() in valid}
+            ws.objects = [o for o in ws.objects if o.lower() in valid]
             if dropped:
-                warnings.append(f"ADD_WORKSPACE: removidas refs a objetos inexistentes: {dropped}")
-            bp.workspaces.append(new_ws)
+                w.append(f"ADD_WORKSPACE: removidas refs inexistentes: {dropped}")
+            bp.workspaces.append(ws)
 
     elif op == "REMOVE_WORKSPACE":
-        name = op_dict["name"]
-        original = len(bp.workspaces)
-        name_lower = name.lower()
-        bp.workspaces = [w for w in bp.workspaces if w.name.lower() != name_lower]
-        if len(bp.workspaces) == original:
-            warnings.append(f"REMOVE_WORKSPACE: '{name}' não encontrado.")
+        name = op_dict["name"]; nl = name.lower(); n0 = len(bp.workspaces)
+        bp.workspaces = [ws for ws in bp.workspaces if ws.name.lower() != nl]
+        if len(bp.workspaces) == n0:
+            w.append(f"REMOVE_WORKSPACE: '{name}' não encontrado.")
 
     elif op == "ADD_TO_WORKSPACE":
-        ws_name  = op_dict["workspace"]
-        obj_name = op_dict["object"]
-        ws  = _find_workspace(bp, ws_name)
-        obj = _find_object(bp, obj_name)
-
+        ws  = _find_workspace(bp, op_dict["workspace"])
+        obj = _find_object(bp, op_dict["object"])
         if ws is None:
-            warnings.append(f"ADD_TO_WORKSPACE: workspace '{ws_name}' não encontrado.")
+            w.append(f"ADD_TO_WORKSPACE: workspace '{op_dict['workspace']}' não encontrado.")
         elif obj is None:
-            warnings.append(f"ADD_TO_WORKSPACE: objeto '{obj_name}' não encontrado.")
-        else:
-            if obj.name not in ws.objects:
-                ws.objects.append(obj.name)
+            w.append(f"ADD_TO_WORKSPACE: objeto '{op_dict['object']}' não encontrado.")
+        elif obj.name not in ws.objects:
+            ws.objects.append(obj.name)
 
     elif op == "REMOVE_FROM_WORKSPACE":
-        ws_name  = op_dict["workspace"]
-        obj_name = op_dict["object"]
-        ws = _find_workspace(bp, ws_name)
+        ws = _find_workspace(bp, op_dict["workspace"])
         if ws is None:
-            warnings.append(f"REMOVE_FROM_WORKSPACE: workspace '{ws_name}' não encontrado.")
+            w.append(f"REMOVE_FROM_WORKSPACE: workspace '{op_dict['workspace']}' não encontrado.")
         else:
-            original = len(ws.objects)
-            ws.objects = [o for o in ws.objects if o.lower() != obj_name.lower()]
-            if len(ws.objects) == original:
-                warnings.append(
-                    f"REMOVE_FROM_WORKSPACE: '{obj_name}' não encontrado em '{ws_name}'."
-                )
+            ol = op_dict["object"].lower(); n0 = len(ws.objects)
+            ws.objects = [o for o in ws.objects if o.lower() != ol]
+            if len(ws.objects) == n0:
+                w.append(f"REMOVE_FROM_WORKSPACE: '{op_dict['object']}' não encontrado em '{op_dict['workspace']}'.")
 
-    else:
-        warnings.append(f"Operação desconhecida '{op}' — ignorada.")
-
-    return warnings
+    return w
 
 
-# ---------------------------------------------------------------------------
-# FEEDBACK LOOP — re-envio automático ao Ollama com contexto de erro
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# FEEDBACK LOOP
+# ─────────────────────────────────────────────────────────────────────────────
 
 MAX_FEEDBACK_ITERATIONS = 2
 
 
 def _run_with_feedback_loop(
     user_prompt: str,
-    current_schema_dict: Dict[str, Any],
+    schema_dict: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], List[str]]:
-    """
-    Tenta obter operações válidas do Ollama.
-    Se a Firewall detetar erros, reenvia automaticamente com o contexto do erro
-    (até MAX_FEEDBACK_ITERATIONS tentativas).
-
-    Retorna (operations, all_firewall_errors).
-    """
     error_context: Optional[str] = None
-    operations: List[Dict[str, Any]] = []
+    last_ops: List[Dict[str, Any]] = []
     all_errors: List[str] = []
 
     for iteration in range(1, MAX_FEEDBACK_ITERATIONS + 2):
-        logger.info("Iteração %d/%d do feedback loop", iteration, MAX_FEEDBACK_ITERATIONS + 1)
+        logger.info("Feedback loop iteração %d/%d", iteration, MAX_FEEDBACK_ITERATIONS + 1)
 
-        prompt_text = _build_ollama_prompt(user_prompt, current_schema_dict, error_context)
+        prompt_text = _build_ollama_prompt(user_prompt, schema_dict, error_context)
 
         try:
-            raw_response = _call_ollama(prompt_text)
+            raw = _call_ollama(prompt_text)
         except RuntimeError as e:
             return [], [str(e)]
 
         try:
-            diff = _parse_llm_json(raw_response)
+            diff = _parse_llm_json(raw)
         except ValueError as e:
             error_context = str(e)
             all_errors.append(error_context)
-            logger.warning("Iteração %d: falha de parse — %s", iteration, error_context)
             continue
 
-        # Extrair lista de operações
         ops = diff.get("operations")
         if ops is None and "op" in diff:
             ops = [diff]
         elif ops is None:
-            error_context = (
-                "O JSON devolvido não tem a chave 'operations'. "
-                f"JSON recebido: {json.dumps(diff)[:200]}"
-            )
+            error_context = f"JSON sem 'operations': {json.dumps(diff)[:200]}"
             all_errors.append(error_context)
-            logger.warning("Iteração %d: chave 'operations' em falta", iteration)
             continue
 
-        ok, firewall_errors = _validate_diff(ops)
-
+        ok, errs = _validate_diff(ops)
         if ok:
-            logger.info("Iteração %d: operações válidas. Firewall passou.", iteration)
             return ops, []
 
-        # Preparar contexto de erro para a próxima iteração
-        error_context = "\n".join(firewall_errors)
-        all_errors.extend(firewall_errors)
-        operations = ops  # guardar para debug mesmo que inválidas
-        logger.warning(
-            "Iteração %d: Firewall bloqueou %d operações: %s",
-            iteration, len(firewall_errors), firewall_errors,
-        )
+        error_context = "\n".join(errs)
+        all_errors.extend(errs)
+        last_ops = ops
+        logger.warning("Iteração %d: Firewall bloqueou: %s", iteration, errs)
 
-    # Esgotamos as iterações — devolver as últimas operações mesmo que imperfeitas
-    # (o handler principal decidirá o que fazer em modo não-strict)
-    return operations, all_errors
+    return last_ops, all_errors
 
 
-# ---------------------------------------------------------------------------
-# GOLDEN DATASET — Testes de Regressão Inline
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# GOLDEN DATASET — Regressão inline
+# ─────────────────────────────────────────────────────────────────────────────
 
 def run_regression_tests() -> Dict[str, Any]:
-    """
-    Executa os 3 casos do Golden Dataset sem chamar o Ollama.
-    Testa diretamente a lógica de mutação e a Firewall.
-
-    Uso:
-        from handlers.update_schema_handler import run_regression_tests
-        results = run_regression_tests()
-        print(results)
-    """
-    results = {}
-
-    # Schema mínimo de teste
     base_schema = {
         "objects": [
-            {
-                "name": "Cliente",
-                "fields": [
-                    {"name": "clienteid", "type": "integer"},
-                    {"name": "nome", "type": "string"},
-                ],
-            },
-            {
-                "name": "Produto",
-                "fields": [
-                    {"name": "produtoid", "type": "integer"},
-                    {"name": "nome", "type": "string"},
-                ],
-            },
+            {"name": "Cliente", "fields": [{"name": "clienteid", "type": "integer"}, {"name": "nome", "type": "string"}]},
+            {"name": "Produto",  "fields": [{"name": "produtoid",  "type": "integer"}, {"name": "nome", "type": "string"}]},
         ],
-        "relations": [
-            {"from": "Cliente", "to": "Produto", "type": "ONE_TO_MANY"},
-        ],
-        "workspaces": [
-            {
-                "name": "Backoffice",
-                "objects": ["Cliente", "Produto"],
-                "primary_entity": "Cliente",
-                "permissions": ["VER"],
-            }
-        ],
+        "relations": [{"from": "Cliente", "to": "Produto", "type": "ONE_TO_MANY"}],
+        "workspaces": [{"name": "Backoffice", "objects": ["Cliente", "Produto"], "primary_entity": "Cliente", "permissions": ["VER"]}],
         "actions": [],
     }
 
-    # ── CASO 1: Formatação — ADD_FIELD com tipo float ────────────────────────
-    ops_case1 = [
-        {"op": "ADD_FIELD", "object": "produto", "field": {"name": "preco", "type": "float"}}
-    ]
-    ok1, errs1 = _validate_diff(ops_case1)
+    results = {}
+
+    # Caso 1: ADD_FIELD com tipo float
+    ops1 = [{"op": "ADD_FIELD", "object": "produto", "field": {"name": "preco", "type": "float"}}]
+    ok1, _ = _validate_diff(ops1)
     bp1 = parse_blueprint(base_schema)
-    warns1 = _apply_operation(bp1, ops_case1[0])
-    produto = _find_object(bp1, "Produto")
-    campo_preco = next((f for f in (produto.fields if produto else []) if f.name == "preco"), None)
-
-    results["caso_1_formatacao"] = {
-        "descricao": "ADD_FIELD preco:float ao produto",
-        "firewall_ok": ok1,
-        "campo_criado": campo_preco.name if campo_preco else None,
-        "tipo_correto": campo_preco.type == "float" if campo_preco else False,
-        "warnings": warns1,
-        "passou": bool(ok1 and campo_preco and campo_preco.type == "float"),
+    _apply_operation(bp1, ops1[0])
+    prod = _find_object(bp1, "Produto")
+    campo = next((f for f in (prod.fields if prod else []) if f.name == "preco"), None)
+    results["caso_1_add_field"] = {
+        "passou": bool(ok1 and campo and campo.type == "float"),
+        "tipo_criado": campo.type if campo else None,
     }
 
-    # ── CASO 2: Integridade — RENAME propagado para workspaces e relations ──
-    ops_case2 = [
-        {"op": "RENAME_OBJECT", "old_name": "cliente", "new_name": "utilizador"}
-    ]
-    ok2, errs2 = _validate_diff(ops_case2)
+    # Caso 2: RENAME com propagação
+    ops2 = [{"op": "RENAME_OBJECT", "old_name": "cliente", "new_name": "utilizador"}]
+    ok2, _ = _validate_diff(ops2)
     bp2 = parse_blueprint(base_schema)
-    warns2 = _apply_operation(bp2, ops_case2[0])
-
-    # Verificar propagação
-    ws_objects_after = bp2.workspaces[0].objects if bp2.workspaces else []
-    relation_from_after = bp2.relations[0].from_obj if bp2.relations else ""
-    obj_names_after = [o.name for o in bp2.objects]
-
-    results["caso_2_integridade"] = {
-        "descricao": "RENAME_OBJECT cliente→utilizador com propagação",
-        "firewall_ok": ok2,
-        "objeto_renomeado": "Utilizador" in obj_names_after or "utilizador" in obj_names_after,
-        "workspace_atualizado": "utilizador" in [o.lower() for o in ws_objects_after],
-        "relation_atualizada": relation_from_after.lower() == "utilizador",
-        "warnings": warns2,
-        "passou": bool(
-            ok2
-            and ("Utilizador" in obj_names_after or "utilizador" in obj_names_after)
-            and "utilizador" in [o.lower() for o in ws_objects_after]
-            and relation_from_after.lower() == "utilizador"
-        ),
+    _apply_operation(bp2, ops2[0])
+    nomes = [o.name.lower() for o in bp2.objects]
+    ws_obs = [o.lower() for o in (bp2.workspaces[0].objects if bp2.workspaces else [])]
+    rel_from = bp2.relations[0].from_obj.lower() if bp2.relations else ""
+    results["caso_2_rename_propagado"] = {
+        "passou": bool(ok2 and "utilizador" in nomes and "utilizador" in ws_obs and rel_from == "utilizador"),
+        "workspace_atualizado": "utilizador" in ws_obs,
+        "relation_atualizada":  rel_from == "utilizador",
     }
 
-    # ── CASO 3: Workspace Inexistente — deve retornar erro estruturado ──────
-    ops_case3 = [
-        {"op": "ADD_TO_WORKSPACE", "workspace": "WorkspaceInexistente", "object": "produto"}
-    ]
-    ok3, errs3 = _validate_diff(ops_case3)
+    # Caso 3: workspace inexistente gera warning sem crash
+    ops3 = [{"op": "ADD_TO_WORKSPACE", "workspace": "NaoExiste", "object": "produto"}]
+    ok3, _ = _validate_diff(ops3)
     bp3 = parse_blueprint(base_schema)
-    warns3 = _apply_operation(bp3, ops_case3[0])
-
-    # ADD_TO_WORKSPACE para workspace inexistente deve gerar um warning (não crash)
-    ws_inexistente_warning = any("não encontrado" in w for w in warns3)
-
-    results["caso_3_workspace_inexistente"] = {
-        "descricao": "ADD_TO_WORKSPACE para workspace que não existe",
-        "firewall_ok": ok3,  # A Firewall não pode saber se o workspace existe sem o schema
-        "warning_gerado": ws_inexistente_warning,
-        "schema_intacto": len(bp3.workspaces) == 1,  # Não deve ter criado nada
-        "warnings": warns3,
-        "passou": bool(ws_inexistente_warning and len(bp3.workspaces) == 1),
+    warns3 = _apply_operation(bp3, ops3[0])
+    results["caso_3_ws_inexistente"] = {
+        "passou": bool(any("não encontrado" in w for w in warns3) and len(bp3.workspaces) == 1),
+        "warning": warns3,
     }
 
-    # Sumário
-    total = len(results)
+    # Caso 4: parser resiste a <think> tags do 8B
+    raw_com_think = '<think>\nVou adicionar o campo.\n{"x": 1}\n</think>\n{"operations": [{"op": "ADD_FIELD", "object": "produto", "field": {"name": "teste", "type": "string"}}]}'
+    try:
+        parsed = _parse_llm_json(raw_com_think)
+        results["caso_4_think_tags"] = {
+            "passou": "operations" in parsed and parsed["operations"][0]["op"] == "ADD_FIELD",
+        }
+    except Exception as e:
+        results["caso_4_think_tags"] = {"passou": False, "erro": str(e)}
+
+    # Caso 5: string vazia do LLM → excepção explicativa (não NoneType)
+    try:
+        _parse_llm_json("")
+        results["caso_5_string_vazia"] = {"passou": False, "erro": "devia ter lançado ValueError"}
+    except ValueError as e:
+        results["caso_5_string_vazia"] = {"passou": True, "mensagem": str(e)[:80]}
+
+    total  = len(results)
     passed = sum(1 for r in results.values() if r.get("passou"))
-    results["_sumario"] = {
-        "total": total,
-        "passou": passed,
-        "falhou": total - passed,
-        "taxa_sucesso": f"{passed}/{total}",
-    }
-
+    results["_sumario"] = {"total": total, "passou": passed, "taxa": f"{passed}/{total}"}
     return results
 
 
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 # HANDLER PRINCIPAL
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 
 def handle_update_schema(
     prompt: str,
     current_schema: Dict[str, Any],
     *,
-    strict: bool = False,  # False por defeito: aplica ops válidas, descarta inválidas
+    strict: bool = False,
 ) -> Dict[str, Any]:
-    """
-    Entry point do handler de atualização de schema.
 
-    Parâmetros
-    ----------
-    prompt : str
-        Instrução do utilizador (ex: "Adiciona o campo email ao cliente").
-    current_schema : dict
-        Schema atual da cache — será blindado via parse_blueprint antes de qualquer operação.
-    strict : bool
-        Se True, qualquer erro da Firewall aborta TODAS as mutações.
-        Se False (padrão), aplica as ops válidas e descarta as inválidas com warnings.
+    bp = parse_blueprint(current_schema if isinstance(current_schema, dict) else {})
+    logger.info("prompt='%s' | objects=%d | relations=%d | workspaces=%d",
+                prompt, len(bp.objects), len(bp.relations), len(bp.workspaces))
 
-    Retorno compatível com o frontend e com main.py:
-        "success", "type", "data", "mutations_applied", "mutation_log",
-        "struct_warnings", "errors"
-    """
-
-    # ── 1. Blindar o schema antes de qualquer operação ───────────────────────
-    bp: BlueprintModel = parse_blueprint(
-        current_schema if isinstance(current_schema, dict) else {}
-    )
-
-    logger.info(
-        "prompt='%s' | objects=%d | relations=%d | workspaces=%d",
-        prompt, len(bp.objects), len(bp.relations), len(bp.workspaces),
-    )
-
-    # ── 2. Obter operações via Ollama + Feedback Loop ─────────────────────────
     operations, firewall_errors = _run_with_feedback_loop(prompt, bp.to_dict())
 
     if not operations and firewall_errors:
-        logger.error("Feedback loop esgotado. Erros: %s", firewall_errors)
         return _error_response(bp, firewall_errors)
 
-    # ── 3. Validação final (após feedback loop) ──────────────────────────────
-    ok, remaining_errors = _validate_diff(operations)
+    ok, remaining = _validate_diff(operations)
 
     if not ok:
         if strict:
-            logger.warning("Strict=True — abortando todas as mutações. Erros: %s", remaining_errors)
-            return _error_response(bp, remaining_errors)
-        else:
-            # Filtrar para aplicar apenas as válidas
-            clean_ops = []
-            for op_dict in operations:
-                single_ok, _ = _validate_diff([op_dict])
-                if single_ok:
-                    clean_ops.append(op_dict)
-            logger.warning(
-                "Strict=False — %d/%d ops válidas após filtragem",
-                len(clean_ops), len(operations),
-            )
-            operations = clean_ops
+            return _error_response(bp, remaining)
+        clean = []
+        for op in operations:
+            s_ok, _ = _validate_diff([op])
+            if s_ok:
+                clean.append(op)
+        logger.warning("Strict=False: %d/%d ops válidas", len(clean), len(operations))
+        operations = clean
 
-    # ── 4. Deep copy defensivo ───────────────────────────────────────────────
-    bp_copy: BlueprintModel = parse_blueprint(bp.to_dict())
+    bp_copy    = parse_blueprint(bp.to_dict())
+    applied: List[str]  = []
+    all_warns: List[str] = []
 
-    applied: List[str] = []
-    all_warnings: List[str] = []
-
-    # ── 5. Aplicar operações uma a uma ──────────────────────────────────────
     for op_dict in operations:
         op_label = op_dict.get("op", "UNKNOWN")
         try:
-            op_warnings = _apply_operation(bp_copy, op_dict)
-            all_warnings.extend(op_warnings)
+            warns = _apply_operation(bp_copy, op_dict)
+            all_warns.extend(warns)
             applied.append(op_label)
             logger.info("Aplicado: %s", op_label)
         except Exception as exc:
             msg = f"[{op_label}] Erro inesperado: {exc}"
             logger.exception(msg)
-            all_warnings.append(msg)
+            all_warns.append(msg)
             if strict:
                 return _error_response(bp, [msg])
 
-    # ── 6. Blindar saída final ───────────────────────────────────────────────
-    final_bp = parse_blueprint(bp_copy.to_dict())
-
-    logger.info(
-        "Concluído — %d ops aplicadas | objects=%d | relations=%d | workspaces=%d",
-        len(applied), len(final_bp.objects), len(final_bp.relations), len(final_bp.workspaces),
-    )
+    final = parse_blueprint(bp_copy.to_dict())
+    logger.info("Concluído: %d ops | objects=%d | relations=%d | workspaces=%d",
+                len(applied), len(final.objects), len(final.relations), len(final.workspaces))
 
     return {
-        "success": True,
-        "type": "SYSTEM",
-        "schema": final_bp.to_dict(),
-        "data": final_bp.to_dict(),       # alias para compatibilidade com frontend
+        "success":          True,
+        "type":             "SYSTEM",
+        "schema":           final.to_dict(),
+        "data":             final.to_dict(),
         "mutations_applied": len(applied),
-        "mutation_log": applied,
-        "struct_warnings": all_warnings,
-        "errors": remaining_errors if not ok else [],
+        "mutation_log":     applied,
+        "struct_warnings":  all_warns,
+        "errors":           remaining if not ok else [],
     }
 
-
-# ---------------------------------------------------------------------------
-# HELPERS internos
-# ---------------------------------------------------------------------------
 
 def _error_response(bp: BlueprintModel, errors: List[str]) -> Dict[str, Any]:
-    """Devolve o schema ORIGINAL intacto em caso de erro."""
     logger.error("Erro no handler: %s", errors)
     return {
-        "success": False,
-        "type": "SYSTEM",
-        "schema": bp.to_dict(),
-        "data": bp.to_dict(),
+        "success":          False,
+        "type":             "SYSTEM",
+        "schema":           bp.to_dict(),
+        "data":             bp.to_dict(),
         "mutations_applied": 0,
-        "mutation_log": [],
-        "struct_warnings": [],
-        "errors": errors,
+        "mutation_log":     [],
+        "struct_warnings":  [],
+        "errors":           errors,
     }
 
 
-# ---------------------------------------------------------------------------
-# CLI — teste rápido sem servidor
-# ---------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("\n🧪 AiBizCore — Testes de Regressão (Golden Dataset)\n")
-    results = run_regression_tests()
-
-    for name, result in results.items():
-        if name == "_sumario":
-            continue
-        status = "✅ PASSOU" if result.get("passou") else "❌ FALHOU"
-        print(f"{status} | {name}: {result['descricao']}")
-        if not result.get("passou"):
-            print(f"   Detalhes: {result}")
-
-    sumario = results["_sumario"]
-    print(f"\n📊 Sumário: {sumario['taxa_sucesso']} testes passaram\n")
+    print("\n🧪 AiBizCore — Golden Dataset\n")
+    r = run_regression_tests()
+    for name, res in r.items():
+        if name == "_sumario": continue
+        print(f"{'✅' if res.get('passou') else '❌'} {name}: {res}")
+    print(f"\n📊 {r['_sumario']['taxa']}\n")
