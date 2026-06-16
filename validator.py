@@ -29,13 +29,16 @@ DOMAIN_RELATION_SPECS = [
     ("Encomenda", "Pagamento", "ONE_TO_MANY"),
     ("Categoria", "Produto", "ONE_TO_MANY"),
     ("Fornecedor", "Produto", "MANY_TO_MANY"),
+
     ("Paciente", "Consulta", "ONE_TO_MANY"),
     ("Medico", "Consulta", "ONE_TO_MANY"),
     ("Médico", "Consulta", "ONE_TO_MANY"),
+
     ("Aluno", "Inscricao", "ONE_TO_MANY"),
     ("Aluno", "Inscrição", "ONE_TO_MANY"),
     ("Curso", "Inscricao", "ONE_TO_MANY"),
     ("Curso", "Inscrição", "ONE_TO_MANY"),
+
     ("Cliente", "Conta", "ONE_TO_MANY"),
     ("Conta", "Transacao", "ONE_TO_MANY"),
     ("Conta", "Transação", "ONE_TO_MANY"),
@@ -77,9 +80,13 @@ def _fix_common_field_name(name: str) -> str:
     fixes = {
         "preo": "preco",
         "mtodo": "metodo",
+        "mtododepagamento": "metodo_pagamento",
         "descrio": "descricao",
         "criadoem": "created_at",
-        "atualizadoem": "updated_at"
+        "atualizadoem": "updated_at",
+        "datadeentrega": "data_entrega",
+        "valorpago": "valor_pago",
+        "nomedofornecedor": "nome_fornecedor"
     }
 
     return fixes.get(name, name)
@@ -208,7 +215,14 @@ def _canonicalize_relation(from_obj: str, to_obj: str, rel_type: str, name_by_to
     return from_obj, to_obj, rel_type, False
 
 
-def _add_relation(fixed_relations: list, seen_pairs: set, from_obj: str, to_obj: str, rel_type: str, label: str = ""):
+def _add_relation(
+    fixed_relations: list,
+    seen_pairs: set,
+    from_obj: str,
+    to_obj: str,
+    rel_type: str,
+    label: str = ""
+):
     if not from_obj or not to_obj or from_obj == to_obj:
         return
 
@@ -280,6 +294,10 @@ def hard_validate(blueprint: dict) -> dict:
             "fixed_blueprint": blueprint
         }
 
+    # =========================
+    # OBJECTS
+    # =========================
+
     fixed_objects = []
     object_names = set()
 
@@ -311,7 +329,10 @@ def hard_validate(blueprint: dict) -> dict:
         )
 
         if not has_pk:
-            fields.insert(0, {"name": pk_name, "type": "integer"})
+            fields.insert(0, {
+                "name": pk_name,
+                "type": "integer"
+            })
 
         fixed_fields = []
         seen_field_names = set()
@@ -333,10 +354,13 @@ def hard_validate(blueprint: dict) -> dict:
             if ftype not in VALID_FIELD_TYPES:
                 ftype = _infer_type(fname)
 
-            if fname == "preco":
+            if fname in {"preco", "valor", "valor_pago", "total", "saldo"}:
                 ftype = "float"
 
-            if fname == "metodo":
+            if fname in {"stock", "quantidade"}:
+                ftype = "integer"
+
+            if fname in {"metodo", "metodo_pagamento"}:
                 ftype = "string"
 
             fixed_fields.append({
@@ -391,9 +415,11 @@ def hard_validate(blueprint: dict) -> dict:
             name_by_token
         )
 
+        # Relações com entidades de suporte são reconstruídas de forma controlada.
         if _is_support_entity(from_obj) or _is_support_entity(to_obj):
             continue
 
+        # Em domínios conhecidos, rejeita relações não canónicas.
         if known_context and not is_canonical:
             continue
 
@@ -406,7 +432,7 @@ def hard_validate(blueprint: dict) -> dict:
             label
         )
 
-    # Auto-fix das relações canónicas
+    # Auto-fix das relações canónicas conhecidas
     for left, right, rel_type in DOMAIN_RELATION_SPECS:
         left_token = _canonical_token(left)
         right_token = _canonical_token(right)
@@ -500,7 +526,11 @@ def hard_validate(blueprint: dict) -> dict:
             "color": str(ws.get("color", "#6B7280")).strip() or "#6B7280",
             "objects": list(dict.fromkeys(ws_objects)),
             "primary_entity": primary_entity,
-            "permissions": list(dict.fromkeys([str(p).strip() for p in permissions if str(p).strip()]))
+            "permissions": list(dict.fromkeys([
+                str(p).strip()
+                for p in permissions
+                if str(p).strip()
+            ]))
         })
 
     # =========================
@@ -551,7 +581,12 @@ def hard_validate(blueprint: dict) -> dict:
         "relations": fixed_relations,
         "actions": fixed_actions,
         "workspaces": fixed_workspaces,
-        "metadata": blueprint.get("metadata", {})
+        "metadata": {
+            "total_objects": len(fixed_objects),
+            "total_relations": len(fixed_relations),
+            "total_actions": len(fixed_actions),
+            "total_workspaces": len(fixed_workspaces)
+        }
     }
 
     passed = len(errors) == 0
@@ -579,7 +614,11 @@ def soft_validate(blueprint: dict, prompt: str = "") -> dict:
     actions = blueprint.get("actions", [])
     workspaces = blueprint.get("workspaces", [])
 
-    object_names = {o["name"] for o in objects if isinstance(o, dict)}
+    object_names = {
+        o["name"]
+        for o in objects
+        if isinstance(o, dict) and o.get("name")
+    }
 
     for action in actions:
         if not isinstance(action, dict):
