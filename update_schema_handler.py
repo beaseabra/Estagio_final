@@ -608,95 +608,185 @@ def _parse_field_list(raw: str) -> List[Dict[str, str]]:
 
 def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[str, Any]]:
     """
-    Resolve operações simples sem LLM:
-    - remover campo
-    - renomear campo
-    - mudar tipo de campo
-    - adicionar campo
-    - adicionar objeto simples
+    Resolve operações estruturais simples sem depender diretamente do LLM.
 
-    O LLM continua a ser usado quando nenhuma regra simples é detetada.
+    Isto NÃO remove a LLM da arquitetura.
+    Apenas garante que operações críticas e previsíveis são transformadas
+    em diffs seguros antes do fallback para LLM.
+
+    Suporta:
+    - ADD_FIELD
+    - REMOVE_FIELD
+    - RENAME_FIELD
+    - RETYPE_FIELD
+    - ADD_OBJECT
+    - REMOVE_OBJECT
+    - RENAME_OBJECT
+    - ADD_RELATION
+    - REMOVE_RELATION
+    - ADD_WORKSPACE
+    - REMOVE_WORKSPACE
+    - ADD_TO_WORKSPACE
+    - REMOVE_FROM_WORKSPACE
+    - várias operações simples no mesmo prompt
     """
 
     text = str(user_prompt or "").strip()
     low = text.lower()
 
-    # 1. Renomear campo
-    rename_patterns = [
+    operations: List[Dict[str, Any]] = []
+
+    def _add_op(op: Dict[str, Any]) -> None:
+        """Adiciona operação evitando duplicados exatos."""
+        key = json.dumps(op, ensure_ascii=False, sort_keys=True)
+        existing = {
+            json.dumps(x, ensure_ascii=False, sort_keys=True)
+            for x in operations
+        }
+
+        if key not in existing:
+            operations.append(op)
+
+    def _resolve_object_name(raw_name: Optional[str]) -> Optional[str]:
+        """Resolve nome de objeto preservando capitalização real do schema."""
+        if not raw_name:
+            return None
+
+        raw_norm = _norm_token(raw_name)
+
+        for obj in bp.objects:
+            if _norm_token(obj.name) == raw_norm:
+                return obj.name
+
+        return None
+
+    def _resolve_workspace_name(raw_name: Optional[str]) -> Optional[str]:
+        """Resolve nome de workspace preservando capitalização real do schema."""
+        if not raw_name:
+            return None
+
+        raw_norm = _norm_token(raw_name)
+
+        for ws in bp.workspaces:
+            if _norm_token(ws.name) == raw_norm:
+                return ws.name
+
+        return None
+
+    def _parse_object_names(raw: str) -> List[str]:
+        """
+        Extrai nomes de objetos de texto livre:
+        'Livro e Projeto' -> ['Livro', 'Projeto']
+        'Livro, Projeto' -> ['Livro', 'Projeto']
+        """
+        raw = str(raw or "").strip()
+        raw = raw.replace(" e ", ",")
+        raw = raw.replace(";", ",")
+
+        parts = [
+            p.strip()
+            for p in raw.split(",")
+            if p.strip()
+        ]
+
+        resolved = []
+
+        for part in parts:
+            # cortar ruído comum no fim
+            part = re.split(
+                r"\s+(?:com|como|do|da|de|no|na|ao|à)\s+",
+                part,
+                maxsplit=1,
+                flags=re.IGNORECASE
+            )[0].strip()
+
+            obj_name = _resolve_object_name(part)
+
+            if obj_name:
+                resolved.append(obj_name)
+
+        return resolved
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 1. RENAME_FIELD
+    # ─────────────────────────────────────────────────────────────────────
+
+    rename_field_patterns = [
         r"(?:renomeia|renomear)\s+(?:o\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)\s+(?:para|por)\s+([a-zA-ZÀ-ÿ0-9_]+)",
         r"(?:troca|trocar|substitui|substituir)\s+(?:o\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)\s+(?:para|por)\s+([a-zA-ZÀ-ÿ0-9_]+)",
     ]
 
-    for pattern in rename_patterns:
-        match = re.search(pattern, low, re.IGNORECASE)
-
-        if match:
+    for pattern in rename_field_patterns:
+        for match in re.finditer(pattern, low, re.IGNORECASE):
             old_name = _norm_token(match.group(1))
             new_name = _norm_token(match.group(2))
             obj_name = _find_object_for_field(bp, old_name)
 
             if obj_name:
-                return [{
+                _add_op({
                     "op": "RENAME_FIELD",
                     "object": obj_name,
                     "old_name": old_name,
                     "new_name": new_name
-                }]
+                })
 
-    # 2. Remover campo
-    match = re.search(
+    # ─────────────────────────────────────────────────────────────────────
+    # 2. REMOVE_FIELD
+    # ─────────────────────────────────────────────────────────────────────
+
+    remove_field_pattern = (
         r"(?:remove|remover|apaga|apagar|elimina|eliminar|retira|tirar)\s+"
         r"(?:o\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)"
-        r"(?:\s+(?:do|de)\s+objeto\s+([a-zA-ZÀ-ÿ0-9_]+))?",
-        low,
-        re.IGNORECASE
+        r"(?:\s+(?:do|da|de)\s+(?:objeto\s+)?([a-zA-ZÀ-ÿ0-9_]+))?"
     )
 
-    if match:
+    for match in re.finditer(remove_field_pattern, low, re.IGNORECASE):
         field_name = _norm_token(match.group(1))
         explicit_obj = match.group(2)
         obj_name = _find_object_for_field(bp, field_name, explicit_obj)
 
         if obj_name:
-            return [{
+            _add_op({
                 "op": "REMOVE_FIELD",
                 "object": obj_name,
                 "field_name": field_name
-            }]
+            })
 
-    # 3. Mudar tipo de campo
-    match = re.search(
+    # ─────────────────────────────────────────────────────────────────────
+    # 3. RETYPE_FIELD
+    # ─────────────────────────────────────────────────────────────────────
+
+    retype_field_pattern = (
         r"(?:muda|mudar|altera|alterar|atualiza|atualizar)\s+"
         r"(?:o\s+)?tipo\s+(?:do\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
-        r"(?:para|como)\s+([a-zA-ZÀ-ÿ0-9_]+)",
-        low,
-        re.IGNORECASE
+        r"(?:para|como)\s+([a-zA-ZÀ-ÿ0-9_]+)"
     )
 
-    if match:
+    for match in re.finditer(retype_field_pattern, low, re.IGNORECASE):
         field_name = _norm_token(match.group(1))
         new_type = _normalize_type(match.group(2))
         obj_name = _find_object_for_field(bp, field_name)
 
         if obj_name:
-            return [{
+            _add_op({
                 "op": "RETYPE_FIELD",
                 "object": obj_name,
                 "field_name": field_name,
                 "new_type": new_type
-            }]
+            })
 
-    # 4. Adicionar campo
-    match = re.search(
+    # ─────────────────────────────────────────────────────────────────────
+    # 4. ADD_FIELD
+    # ─────────────────────────────────────────────────────────────────────
+
+    add_field_pattern = (
         r"(?:adiciona|adicionar|acrescenta|acrescentar|cria|criar)\s+"
         r"(?:o\s+)?campo\s+([a-zA-ZÀ-ÿ0-9_]+)"
-        r"(?:\s+(?:ao|no)\s+objeto\s+([a-zA-ZÀ-ÿ0-9_]+))?"
-        r"(?:\s+como\s+([a-zA-ZÀ-ÿ0-9_]+))?",
-        low,
-        re.IGNORECASE
+        r"(?:\s+(?:ao|à|no|na)\s+(?:objeto\s+)?([a-zA-ZÀ-ÿ0-9_]+))?"
+        r"(?:\s+como\s+([a-zA-ZÀ-ÿ0-9_]+))?"
     )
 
-    if match:
+    for match in re.finditer(add_field_pattern, low, re.IGNORECASE):
         field_name = _norm_token(match.group(1))
         explicit_obj = match.group(2)
         field_type = _normalize_type(match.group(3)) if match.group(3) else _infer_field_type(field_name)
@@ -704,46 +794,227 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
         obj_name = None
 
         if explicit_obj:
-            obj = _find_object(bp, explicit_obj)
-
-            if obj:
-                obj_name = obj.name
+            obj_name = _resolve_object_name(explicit_obj)
 
         if not obj_name and len(bp.objects) == 1:
             obj_name = bp.objects[0].name
 
         if obj_name:
-            return [{
+            _add_op({
                 "op": "ADD_FIELD",
                 "object": obj_name,
                 "field": {
                     "name": field_name,
                     "type": field_type
                 }
-            }]
+            })
 
-    # 5. Adicionar objeto simples
-    match = re.search(
+    # ─────────────────────────────────────────────────────────────────────
+    # 5. ADD_OBJECT
+    # ─────────────────────────────────────────────────────────────────────
+
+    add_object_pattern = (
         r"(?:adiciona|adicionar|cria|criar)\s+"
         r"(?:um\s+|uma\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
-        r"com\s+(?:os\s+)?campos\s+(.+)$",
-        text,
-        re.IGNORECASE
+        r"com\s+(?:os\s+)?campos\s+(.+?)(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|cria|apaga|elimina|retira)\b)"
     )
 
-    if match:
+    for match in re.finditer(add_object_pattern, text, re.IGNORECASE):
         object_name = str(match.group(1)).strip()
-        fields = _parse_field_list(match.group(2))
+        fields_raw = match.group(2).strip()
+        fields = _parse_field_list(fields_raw)
 
-        return [{
+        _add_op({
             "op": "ADD_OBJECT",
             "object": {
                 "name": object_name,
                 "fields": fields
             }
-        }]
+        })
 
-    return []
+    # ─────────────────────────────────────────────────────────────────────
+    # 6. RENAME_OBJECT
+    # ─────────────────────────────────────────────────────────────────────
+
+    rename_object_patterns = [
+        r"(?:renomeia|renomear)\s+(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+(?:para|por)\s+([a-zA-ZÀ-ÿ0-9_]+)",
+        r"(?:troca|trocar|substitui|substituir)\s+(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+(?:para|por)\s+([a-zA-ZÀ-ÿ0-9_]+)",
+    ]
+
+    for pattern in rename_object_patterns:
+        for match in re.finditer(pattern, low, re.IGNORECASE):
+            old_name_raw = match.group(1)
+            new_name_raw = match.group(2)
+
+            old_name = _resolve_object_name(old_name_raw)
+            new_name = str(new_name_raw).strip()
+
+            if old_name and new_name:
+                _add_op({
+                    "op": "RENAME_OBJECT",
+                    "old_name": old_name,
+                    "new_name": new_name
+                })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 7. REMOVE_OBJECT
+    # ─────────────────────────────────────────────────────────────────────
+
+    remove_object_pattern = (
+        r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
+        r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)"
+        r"(?!\s+(?:do|da|de|no|na|ao|à)\s+workspace)"
+    )
+
+    for match in re.finditer(remove_object_pattern, low, re.IGNORECASE):
+        obj_name = _resolve_object_name(match.group(1))
+
+        if obj_name:
+            _add_op({
+                "op": "REMOVE_OBJECT",
+                "name": obj_name
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 8. ADD_RELATION
+    # ─────────────────────────────────────────────────────────────────────
+
+    add_relation_patterns = [
+        (
+            r"(?:cria|criar|adiciona|adicionar)\s+"
+            r"(?:uma\s+)?(?:relação|relacao)\s+entre\s+"
+            r"([a-zA-ZÀ-ÿ0-9_]+)\s+e\s+([a-zA-ZÀ-ÿ0-9_]+)"
+            r"(?:\s+(?:como|do\s+tipo|tipo)\s+(ONE_TO_MANY|MANY_TO_MANY))?"
+        ),
+        (
+            r"(?:liga|ligar)\s+"
+            r"([a-zA-ZÀ-ÿ0-9_]+)\s+(?:a|ao|à|com)\s+([a-zA-ZÀ-ÿ0-9_]+)"
+            r"(?:\s+(?:como|do\s+tipo|tipo)\s+(ONE_TO_MANY|MANY_TO_MANY))?"
+        ),
+    ]
+
+    for pattern in add_relation_patterns:
+        for match in re.finditer(pattern, low, re.IGNORECASE):
+            from_obj = _resolve_object_name(match.group(1))
+            to_obj = _resolve_object_name(match.group(2))
+            rel_type = (match.group(3) or "ONE_TO_MANY").upper()
+
+            if from_obj and to_obj and from_obj != to_obj:
+                _add_op({
+                    "op": "ADD_RELATION",
+                    "relation": {
+                        "from": from_obj,
+                        "to": to_obj,
+                        "type": rel_type
+                    }
+                })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 9. REMOVE_RELATION
+    # ─────────────────────────────────────────────────────────────────────
+
+    remove_relation_pattern = (
+        r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
+        r"(?:a\s+)?(?:relação|relacao)\s+entre\s+"
+        r"([a-zA-ZÀ-ÿ0-9_]+)\s+e\s+([a-zA-ZÀ-ÿ0-9_]+)"
+    )
+
+    for match in re.finditer(remove_relation_pattern, low, re.IGNORECASE):
+        from_obj = _resolve_object_name(match.group(1))
+        to_obj = _resolve_object_name(match.group(2))
+
+        if from_obj and to_obj:
+            _add_op({
+                "op": "REMOVE_RELATION",
+                "name": f"{from_obj}→{to_obj}"
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 10. ADD_WORKSPACE
+    # ─────────────────────────────────────────────────────────────────────
+
+    add_workspace_pattern = (
+        r"(?:cria|criar|adiciona|adicionar)\s+"
+        r"(?:um\s+|uma\s+)?workspace\s+([a-zA-ZÀ-ÿ0-9_]+)"
+        r"(?:\s+com\s+(?:os\s+)?objetos\s+(.+?))?"
+        r"(?=$|\s+e\s+(?:adiciona|remove|renomeia|muda|cria|apaga|elimina|retira)\b)"
+    )
+
+    for match in re.finditer(add_workspace_pattern, text, re.IGNORECASE):
+        workspace_name = str(match.group(1)).strip()
+        objects_raw = match.group(2) or ""
+        objects = _parse_object_names(objects_raw)
+
+        _add_op({
+            "op": "ADD_WORKSPACE",
+            "workspace": {
+                "name": workspace_name,
+                "objects": objects,
+                "permissions": ["VER", "CRIAR", "EDITAR", "APAGAR"]
+            }
+        })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 11. REMOVE_WORKSPACE
+    # ─────────────────────────────────────────────────────────────────────
+
+    remove_workspace_pattern = (
+        r"(?:remove|remover|apaga|apagar|elimina|eliminar)\s+"
+        r"(?:o\s+)?workspace\s+([a-zA-ZÀ-ÿ0-9_]+)"
+    )
+
+    for match in re.finditer(remove_workspace_pattern, low, re.IGNORECASE):
+        ws_name = _resolve_workspace_name(match.group(1))
+
+        if ws_name:
+            _add_op({
+                "op": "REMOVE_WORKSPACE",
+                "name": ws_name
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 12. ADD_TO_WORKSPACE
+    # ─────────────────────────────────────────────────────────────────────
+
+    add_to_workspace_pattern = (
+        r"(?:adiciona|adicionar|mete|coloca)\s+"
+        r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
+        r"(?:ao|à|no|na)\s+workspace\s+([a-zA-ZÀ-ÿ0-9_]+)"
+    )
+
+    for match in re.finditer(add_to_workspace_pattern, low, re.IGNORECASE):
+        obj_name = _resolve_object_name(match.group(1))
+        ws_name = _resolve_workspace_name(match.group(2))
+
+        if obj_name and ws_name:
+            _add_op({
+                "op": "ADD_TO_WORKSPACE",
+                "workspace": ws_name,
+                "object": obj_name
+            })
+
+    # ─────────────────────────────────────────────────────────────────────
+    # 13. REMOVE_FROM_WORKSPACE
+    # ─────────────────────────────────────────────────────────────────────
+
+    remove_from_workspace_pattern = (
+        r"(?:remove|remover|retira|tirar)\s+"
+        r"(?:o\s+)?objeto\s+([a-zA-ZÀ-ÿ0-9_]+)\s+"
+        r"(?:do|da|de|no|na)\s+workspace\s+([a-zA-ZÀ-ÿ0-9_]+)"
+    )
+
+    for match in re.finditer(remove_from_workspace_pattern, low, re.IGNORECASE):
+        obj_name = _resolve_object_name(match.group(1))
+        ws_name = _resolve_workspace_name(match.group(2))
+
+        if obj_name and ws_name:
+            _add_op({
+                "op": "REMOVE_FROM_WORKSPACE",
+                "workspace": ws_name,
+                "object": obj_name
+            })
+
+    return operations
 
 
 # ─────────────────────────────────────────────────────────────────────────────
