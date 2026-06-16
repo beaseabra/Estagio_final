@@ -10,14 +10,39 @@ from config import MODELS, OPTIONS, OLLAMA_URL
 VALID_RELATIONS = {"ONE_TO_MANY", "MANY_TO_MANY"}
 
 
+# Relações canónicas conhecidas.
+# Nota: Categoria -> Produto é mais correto do que Produto -> Categoria,
+# porque uma categoria pode conter muitos produtos.
 DOMAIN_RELATIONS = {
     ("Cliente", "Encomenda"): "ONE_TO_MANY",
     ("Encomenda", "Produto"): "MANY_TO_MANY",
     ("Encomenda", "Pagamento"): "ONE_TO_MANY",
-    ("Produto", "Categoria"): "ONE_TO_MANY",
+    ("Categoria", "Produto"): "ONE_TO_MANY",
     ("Fornecedor", "Produto"): "MANY_TO_MANY",
+
     ("Paciente", "Consulta"): "ONE_TO_MANY",
     ("Medico", "Consulta"): "ONE_TO_MANY",
+    ("Médico", "Consulta"): "ONE_TO_MANY",
+
+    ("Aluno", "Inscricao"): "ONE_TO_MANY",
+    ("Aluno", "Inscrição"): "ONE_TO_MANY",
+    ("Curso", "Inscricao"): "ONE_TO_MANY",
+    ("Curso", "Inscrição"): "ONE_TO_MANY",
+
+    ("Conta", "Transacao"): "ONE_TO_MANY",
+    ("Conta", "Transação"): "ONE_TO_MANY",
+    ("Cliente", "Conta"): "ONE_TO_MANY",
+}
+
+
+SUPPORT_ENTITY_KEYWORDS = {
+    "log",
+    "logsistema",
+    "historico",
+    "histórico",
+    "config",
+    "configuracao",
+    "configuração"
 }
 
 
@@ -38,6 +63,75 @@ def _extract_json(text: str):
 
 def _normalize_entity_name(name: str) -> str:
     return str(name).strip()
+
+
+def _lower_token(name: str) -> str:
+    return re.sub(r"[^a-z0-9áàâãéèêíìóòôõúùç]", "", str(name).lower())
+
+
+def _is_support_entity(name: str) -> bool:
+    token = _lower_token(name)
+    return any(k in token for k in SUPPORT_ENTITY_KEYWORDS)
+
+
+def _is_known_domain_context(entities: set) -> bool:
+    """
+    Ativa filtragem mais rigorosa quando o domínio é reconhecível.
+    Isto evita aceitar relações fracas do LLM em domínios comuns.
+    """
+    ecommerce = {"Cliente", "Produto", "Encomenda", "Pagamento"}
+    hospital = {"Paciente", "Consulta"}
+    education = {"Aluno", "Curso"}
+    finance = {"Cliente", "Conta"}
+
+    return (
+        len(ecommerce.intersection(entities)) >= 3
+        or len(hospital.intersection(entities)) >= 2
+        or len(education.intersection(entities)) >= 2
+        or len(finance.intersection(entities)) >= 2
+    )
+
+
+def _support_relation_allowed(a: str, b: str, entities: set) -> bool:
+    """
+    Permite apenas ligações de suporte conservadoras.
+    Não queremos relações aleatórias como LogSistema -> Produto.
+    """
+    if b in {"Historico", "Histórico"} and not _is_support_entity(a):
+        return True
+
+    if b == "LogSistema" and not _is_support_entity(a):
+        return True
+
+    if a in {"Configuracao", "Configuração"} and b == "LogSistema":
+        return True
+
+    return False
+
+
+def _business_relation_allowed(a: str, b: str, entities: set) -> bool:
+    """
+    Decide se uma relação faz sentido.
+    Em domínios conhecidos, aceita apenas relações canónicas ou suporte.
+    Em domínios desconhecidos, é mais permissivo, mas bloqueia relações de suporte erradas.
+    """
+    if (a, b) in DOMAIN_RELATIONS:
+        return True
+
+    if _support_relation_allowed(a, b, entities):
+        return True
+
+    known_context = _is_known_domain_context(entities)
+
+    if known_context:
+        return False
+
+    # Para domínios desconhecidos, bloquear relações em que uma entidade de suporte
+    # aparece como origem de uma entidade de negócio.
+    if _is_support_entity(a) and not _is_support_entity(b):
+        return False
+
+    return True
 
 
 def _normalize_output(data: dict, allowed_entities: set = None) -> list:
@@ -64,6 +158,9 @@ def _normalize_output(data: dict, allowed_entities: set = None) -> list:
             if a not in allowed_entities or b not in allowed_entities:
                 continue
 
+            if not _business_relation_allowed(a, b, allowed_entities):
+                continue
+
         if t not in VALID_RELATIONS:
             t = "ONE_TO_MANY"
 
@@ -72,13 +169,17 @@ def _normalize_output(data: dict, allowed_entities: set = None) -> list:
         if key in seen:
             continue
 
+        # Evita duplicados invertidos dentro do próprio output do LLM.
+        if (b, a) in seen:
+            continue
+
         seen.add(key)
 
         fixed.append({
             "from": a,
             "to": b,
             "type": t,
-            "label": rel.get("label", "")
+            "label": str(rel.get("label", "")).strip()
         })
 
     return fixed
@@ -122,6 +223,33 @@ def _extract_entity_names(plan: dict, objects_data: dict = None) -> list:
     return clean
 
 
+def _choose_main_entity(entity_names: list) -> str:
+    """
+    Escolhe uma entidade principal para ligar entidades de suporte.
+    Em loja online, Encomenda costuma ser a melhor entidade central.
+    """
+    priority = [
+        "Encomenda",
+        "Pedido",
+        "Consulta",
+        "Processo",
+        "Projeto",
+        "Conta",
+        "Cliente",
+        "Produto"
+    ]
+
+    for p in priority:
+        if p in entity_names:
+            return p
+
+    for e in entity_names:
+        if not _is_support_entity(e):
+            return e
+
+    return entity_names[0] if entity_names else ""
+
+
 # =========================
 # CORE LOGIC
 # =========================
@@ -134,7 +262,7 @@ def _infer_relations(plan: dict, entity_names: list = None):
     relations = []
     seen = set()
 
-    # 1. DOMAIN RULES
+    # 1. Domain rules canónicas
     for (a, b), t in DOMAIN_RELATIONS.items():
         if a in entities and b in entities:
             relations.append({
@@ -145,43 +273,83 @@ def _infer_relations(plan: dict, entity_names: list = None):
             })
             seen.add((a, b))
 
-    # 2. SUPPORT ENTITIES CONNECTION
-    entity_list = list(entities)
+    # 2. Ligações conservadoras para entidades de suporte
+    main_entity = _choose_main_entity(entity_names)
 
-    main_entities = [
-        e for e in entity_list
-        if not any(k in e.lower() for k in ["log", "historico", "config"])
-    ]
+    if main_entity:
+        if "Historico" in entities and (main_entity, "Historico") not in seen:
+            relations.append({
+                "from": main_entity,
+                "to": "Historico",
+                "type": "ONE_TO_MANY",
+                "label": ""
+            })
+            seen.add((main_entity, "Historico"))
 
-    main_entity = main_entities[0] if main_entities else (entity_list[0] if entity_list else None)
+        if "Histórico" in entities and (main_entity, "Histórico") not in seen:
+            relations.append({
+                "from": main_entity,
+                "to": "Histórico",
+                "type": "ONE_TO_MANY",
+                "label": ""
+            })
+            seen.add((main_entity, "Histórico"))
 
-    for e in entity_list:
-        if any(k in e.lower() for k in ["log", "historico", "config"]):
-            if main_entity and main_entity != e and (main_entity, e) not in seen:
-                relations.append({
-                    "from": main_entity,
-                    "to": e,
-                    "type": "ONE_TO_MANY",
-                    "label": ""
-                })
-                seen.add((main_entity, e))
+        if "LogSistema" in entities and (main_entity, "LogSistema") not in seen:
+            relations.append({
+                "from": main_entity,
+                "to": "LogSistema",
+                "type": "ONE_TO_MANY",
+                "label": ""
+            })
+            seen.add((main_entity, "LogSistema"))
 
-    # 3. FALLBACK CONTROLADO
-    # Só cria uma cadeia mínima se não houver relações nenhumas.
-    # Isto evita inventar ligações artificiais em excesso.
-    if not relations and len(entity_list) >= 2:
-        for i in range(len(entity_list) - 1):
-            a = entity_list[i]
-            b = entity_list[i + 1]
+    if (
+        "Configuracao" in entities
+        and "LogSistema" in entities
+        and ("Configuracao", "LogSistema") not in seen
+    ):
+        relations.append({
+            "from": "Configuracao",
+            "to": "LogSistema",
+            "type": "ONE_TO_MANY",
+            "label": ""
+        })
+        seen.add(("Configuracao", "LogSistema"))
 
-            if (a, b) not in seen:
-                relations.append({
-                    "from": a,
-                    "to": b,
-                    "type": "ONE_TO_MANY",
-                    "label": ""
-                })
-                seen.add((a, b))
+    if (
+        "Configuração" in entities
+        and "LogSistema" in entities
+        and ("Configuração", "LogSistema") not in seen
+    ):
+        relations.append({
+            "from": "Configuração",
+            "to": "LogSistema",
+            "type": "ONE_TO_MANY",
+            "label": ""
+        })
+        seen.add(("Configuração", "LogSistema"))
+
+    # 3. Fallback mínimo só se não houver nenhuma relação
+    if not relations and len(entity_names) >= 2:
+        business_entities = [
+            e for e in entity_names
+            if not _is_support_entity(e)
+        ]
+
+        if len(business_entities) >= 2:
+            for i in range(len(business_entities) - 1):
+                a = business_entities[i]
+                b = business_entities[i + 1]
+
+                if (a, b) not in seen:
+                    relations.append({
+                        "from": a,
+                        "to": b,
+                        "type": "ONE_TO_MANY",
+                        "label": ""
+                    })
+                    seen.add((a, b))
 
     return relations
 
@@ -202,8 +370,9 @@ def generate_relations(plan: dict, objects_data: dict = None):
     prompt = f"""
 Given the following entities: {', '.join(entity_names)}.
 
-Generate only logical business relationships between them.
-Do not invent relationships that do not make business sense.
+Generate only strong and logical business relationships between them.
+Do not generate reverse duplicates.
+Do not connect support entities such as LogSistema, Historico or Configuracao to normal business entities unless it is clearly an audit/history relation.
 Prefer fewer, correct relationships over many weak relationships.
 
 Respond ONLY with a JSON object strictly matching this format:
@@ -247,20 +416,25 @@ Allowed entity names are exactly: {', '.join(entity_names)}.
 
     inferred = _infer_relations(plan, entity_names)
 
+    # Merge final.
+    # Importante: inferred vem primeiro, para preservar as relações canónicas.
     final = []
     seen = set()
 
-    for rel in llm_relations + inferred:
+    for rel in inferred + llm_relations:
         if not isinstance(rel, dict):
             continue
 
-        a = rel.get("from", "")
-        b = rel.get("to", "")
+        a = _normalize_entity_name(rel.get("from", ""))
+        b = _normalize_entity_name(rel.get("to", ""))
 
         if not a or not b or a == b:
             continue
 
         if a not in allowed_entities or b not in allowed_entities:
+            continue
+
+        if not _business_relation_allowed(a, b, allowed_entities):
             continue
 
         rel_type = str(rel.get("type", "ONE_TO_MANY")).upper().strip()
@@ -269,8 +443,13 @@ Allowed entity names are exactly: {', '.join(entity_names)}.
             rel_type = "ONE_TO_MANY"
 
         key = (a, b)
+        reverse_key = (b, a)
 
         if key in seen:
+            continue
+
+        # Evita relações duplicadas em sentidos opostos.
+        if reverse_key in seen:
             continue
 
         seen.add(key)
@@ -279,7 +458,7 @@ Allowed entity names are exactly: {', '.join(entity_names)}.
             "from": a,
             "to": b,
             "type": rel_type,
-            "label": rel.get("label", "")
+            "label": str(rel.get("label", "")).strip()
         })
 
     print(f"[generator_relations] {len(final)} relações geradas")
