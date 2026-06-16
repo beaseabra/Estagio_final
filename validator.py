@@ -1,6 +1,8 @@
 # ===== validator.py =====
 
 import re
+import unicodedata
+
 from config import VALID_FIELD_TYPES
 
 
@@ -22,6 +24,233 @@ VALID_RELATION_TYPES = {"ONE_TO_MANY", "MANY_TO_MANY"}
 VALID_TRIGGERS = {"manual", "automated", "scheduled"}
 
 
+DOMAIN_RELATION_SPECS = [
+    ("Cliente", "Encomenda", "ONE_TO_MANY"),
+    ("Encomenda", "Produto", "MANY_TO_MANY"),
+    ("Encomenda", "Pagamento", "ONE_TO_MANY"),
+    ("Categoria", "Produto", "ONE_TO_MANY"),
+    ("Fornecedor", "Produto", "MANY_TO_MANY"),
+
+    ("Paciente", "Consulta", "ONE_TO_MANY"),
+    ("Medico", "Consulta", "ONE_TO_MANY"),
+    ("Médico", "Consulta", "ONE_TO_MANY"),
+
+    ("Aluno", "Inscricao", "ONE_TO_MANY"),
+    ("Aluno", "Inscrição", "ONE_TO_MANY"),
+    ("Curso", "Inscricao", "ONE_TO_MANY"),
+    ("Curso", "Inscrição", "ONE_TO_MANY"),
+
+    ("Cliente", "Conta", "ONE_TO_MANY"),
+    ("Conta", "Transacao", "ONE_TO_MANY"),
+    ("Conta", "Transação", "ONE_TO_MANY"),
+]
+
+
+SUPPORT_KEYWORDS = {
+    "log",
+    "logsistema",
+    "historico",
+    "config",
+    "configuracao"
+}
+
+
+# =========================
+# UTILS
+# =========================
+
+def _strip_accents(text: str) -> str:
+    text = str(text)
+    normalized = unicodedata.normalize("NFD", text)
+    return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+
+
+def _canonical_token(name: str) -> str:
+    clean = _strip_accents(str(name).lower())
+    return re.sub(r"[^a-z0-9]", "", clean)
+
+
+def _normalize_field_name(name: str) -> str:
+    name = _strip_accents(str(name).strip().lower())
+    name = re.sub(r"[\s\-]+", "_", name)
+    name = re.sub(r"[^a-z0-9_]", "", name)
+    return name
+
+
+def _as_list(value):
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+
+    return []
+
+
+def _normalize_action_type(value: str) -> str:
+    raw = str(value or "").strip().upper()
+    normalized = _strip_accents(raw)
+
+    aliases = {
+        "ACAO DE DOMINIO": "DOMAIN_ACTION",
+        "AÇÃO DE DOMÍNIO": "DOMAIN_ACTION",
+        "OPERACAO BASICA": "CRUD_ACTION",
+        "OPERAÇÃO BÁSICA": "CRUD_ACTION",
+        "CRUD": "CRUD_ACTION",
+        "RELATORIO": "REPORT_ACTION",
+        "RELATÓRIO": "REPORT_ACTION",
+        "NOTIFICACAO": "NOTIFICATION_ACTION",
+        "NOTIFICAÇÃO": "NOTIFICATION_ACTION",
+        "VALIDACAO": "VALIDATION_ACTION",
+        "VALIDAÇÃO": "VALIDATION_ACTION",
+        "INTEGRACAO": "INTEGRATION_ACTION",
+        "INTEGRAÇÃO": "INTEGRATION_ACTION",
+        "AUTOMACAO": "AUTOMATED_ACTION",
+        "AUTOMAÇÃO": "AUTOMATED_ACTION",
+    }
+
+    if raw in VALID_ACTION_TYPES:
+        return raw
+
+    if normalized in VALID_ACTION_TYPES:
+        return normalized
+
+    return aliases.get(normalized, "DOMAIN_ACTION")
+
+
+def _normalize_trigger(value: str) -> str:
+    raw = _strip_accents(str(value or "").strip().lower())
+
+    aliases = {
+        "manual": "manual",
+        "automated": "automated",
+        "automatico": "automated",
+        "automatizado": "automated",
+        "scheduled": "scheduled",
+        "agendado": "scheduled",
+        "recorrente": "scheduled",
+    }
+
+    return aliases.get(raw, "manual")
+
+
+def _is_support_entity(name: str) -> bool:
+    token = _canonical_token(name)
+    return any(k in token for k in SUPPORT_KEYWORDS)
+
+
+def _is_known_domain_context(tokens: set) -> bool:
+    ecommerce = {"cliente", "produto", "encomenda", "pagamento"}
+    hospital = {"paciente", "consulta"}
+    education = {"aluno", "curso"}
+    finance = {"cliente", "conta"}
+
+    return (
+        len(ecommerce.intersection(tokens)) >= 3
+        or len(hospital.intersection(tokens)) >= 2
+        or len(education.intersection(tokens)) >= 2
+        or len(finance.intersection(tokens)) >= 2
+    )
+
+
+def _choose_main_entity(object_names: list) -> str:
+    priority = [
+        "Encomenda",
+        "Pedido",
+        "Consulta",
+        "Processo",
+        "Projeto",
+        "Conta",
+        "Cliente",
+        "Produto"
+    ]
+
+    available = set(object_names)
+
+    for name in priority:
+        if name in available:
+            return name
+
+    for name in object_names:
+        if not _is_support_entity(name):
+            return name
+
+    return object_names[0] if object_names else ""
+
+
+def _canonicalize_relation(from_obj: str, to_obj: str, rel_type: str, name_by_token: dict):
+    from_token = _canonical_token(from_obj)
+    to_token = _canonical_token(to_obj)
+
+    for left, right, canonical_type in DOMAIN_RELATION_SPECS:
+        left_token = _canonical_token(left)
+        right_token = _canonical_token(right)
+
+        if left_token not in name_by_token or right_token not in name_by_token:
+            continue
+
+        if {from_token, to_token} == {left_token, right_token}:
+            return (
+                name_by_token[left_token],
+                name_by_token[right_token],
+                canonical_type,
+                True
+            )
+
+    return from_obj, to_obj, rel_type, False
+
+
+def _add_relation(fixed_relations: list, seen_pairs: set, from_obj: str, to_obj: str, rel_type: str, label: str = ""):
+    if not from_obj or not to_obj or from_obj == to_obj:
+        return
+
+    if rel_type not in VALID_RELATION_TYPES:
+        rel_type = "ONE_TO_MANY"
+
+    pair = (from_obj, to_obj)
+    reverse_pair = (to_obj, from_obj)
+
+    if pair in seen_pairs:
+        return
+
+    if reverse_pair in seen_pairs:
+        return
+
+    seen_pairs.add(pair)
+
+    fixed_relations.append({
+        "from": from_obj,
+        "to": to_obj,
+        "type": rel_type,
+        "label": label
+    })
+
+
+# =========================
+# TYPE INFERENCE
+# =========================
+
+def _infer_type(field_name: str) -> str:
+    fn = field_name.lower()
+
+    if any(k in fn for k in ["preco", "valor", "total", "custo", "iva", "saldo"]):
+        return "float"
+
+    if any(k in fn for k in ["id", "numero", "quantidade", "stock", "count"]):
+        return "integer"
+
+    if "data" in fn or "date" in fn:
+        return "datetime"
+
+    if any(k in fn for k in ["ativo", "flag", "estado", "validado"]):
+        return "boolean"
+
+    if any(k in fn for k in ["descricao", "observacoes", "notas"]):
+        return "text"
+
+    return "string"
+
+
 # =========================
 # HARD VALIDATION
 # =========================
@@ -35,15 +264,14 @@ def hard_validate(blueprint: dict) -> dict:
     workspaces = blueprint.get("workspaces", [])
     actions = blueprint.get("actions", [])
 
-    # --- RULE H1: Blueprint must not be empty ---
     if not objects:
         return {
             "passed": False,
             "errors": ["Blueprint has no objects"],
+            "warnings": warnings,
             "fixed_blueprint": blueprint
         }
 
-    # --- 🔥 CHANGE: DO NOT BLOCK SMALL SYSTEMS ---
     if len(objects) < 2:
         warnings.append(f"Too few objects: {len(objects)}")
 
@@ -55,7 +283,11 @@ def hard_validate(blueprint: dict) -> dict:
     object_names = set()
 
     for i, obj in enumerate(objects):
-        name = obj.get("name", "").strip()
+        if not isinstance(obj, dict):
+            continue
+
+        name = str(obj.get("name", "")).strip()
+
         if not name:
             errors.append(f"Object at index {i} has no name")
             continue
@@ -69,11 +301,12 @@ def hard_validate(blueprint: dict) -> dict:
         if not isinstance(fields, list):
             fields = []
 
-        pk_name = name.lower() + "id"
+        pk_name = _canonical_token(name) + "id"
 
         has_pk = any(
-            f.get("name", "").lower() == pk_name
-            for f in fields if isinstance(f, dict)
+            _normalize_field_name(f.get("name", "")) == pk_name
+            for f in fields
+            if isinstance(f, dict)
         )
 
         if not has_pk:
@@ -86,19 +319,37 @@ def hard_validate(blueprint: dict) -> dict:
             if not isinstance(field, dict):
                 continue
 
-            fname = field.get("name", "").strip().lower()
+            fname = _normalize_field_name(field.get("name", ""))
+
             if not fname or fname in seen_field_names:
                 continue
 
             seen_field_names.add(fname)
 
-            ftype = field.get("type", "string").lower()
+            ftype = str(field.get("type", "string")).lower().strip()
+
             if ftype not in VALID_FIELD_TYPES:
                 ftype = _infer_type(fname)
 
-            fixed_fields.append({"name": fname, "type": ftype})
+            fixed_fields.append({
+                "name": fname,
+                "type": ftype
+            })
 
-        fixed_objects.append({"name": name, "fields": fixed_fields})
+        fixed_objects.append({
+            "name": name,
+            "fields": fixed_fields
+        })
+
+    object_names = {o["name"] for o in fixed_objects}
+    object_names_list = [o["name"] for o in fixed_objects]
+
+    name_by_token = {
+        _canonical_token(name): name
+        for name in object_names
+    }
+
+    known_context = _is_known_domain_context(set(name_by_token.keys()))
 
     # =========================
     # RELATIONS
@@ -111,9 +362,10 @@ def hard_validate(blueprint: dict) -> dict:
         if not isinstance(rel, dict):
             continue
 
-        from_obj = rel.get("from", "").strip()
-        to_obj = rel.get("to", "").strip()
-        rel_type = rel.get("type", "ONE_TO_MANY").strip().upper()
+        from_obj = str(rel.get("from", "")).strip()
+        to_obj = str(rel.get("to", "")).strip()
+        rel_type = str(rel.get("type", "ONE_TO_MANY")).strip().upper()
+        label = str(rel.get("label", "")).strip()
 
         if not from_obj or not to_obj:
             continue
@@ -124,58 +376,88 @@ def hard_validate(blueprint: dict) -> dict:
         if rel_type not in VALID_RELATION_TYPES:
             rel_type = "ONE_TO_MANY"
 
-        pair = (from_obj, to_obj)
-        if pair in seen_relation_pairs:
+        from_obj, to_obj, rel_type, is_canonical = _canonicalize_relation(
+            from_obj,
+            to_obj,
+            rel_type,
+            name_by_token
+        )
+
+        # Relações com suporte são reconstruídas de forma controlada abaixo.
+        if _is_support_entity(from_obj) or _is_support_entity(to_obj):
             continue
 
-        seen_relation_pairs.add(pair)
+        # Em domínios reconhecidos, rejeitar relações não canónicas.
+        # Isto impede Produto -> Pagamento, Pagamento -> Cliente, etc.
+        if known_context and not is_canonical:
+            continue
 
-        fixed_relations.append({
-            "from": from_obj,
-            "to": to_obj,
-            "type": rel_type,
-            "label": rel.get("label", "")
-        })
-
-    # =========================
-    # 🔥 AUTO-FIX CRITICAL RELATIONS
-    # =========================
-
-    names = {o["name"] for o in fixed_objects}
-
-    def _add_relation(a, b):
-        fixed_relations.append({
-            "from": a,
-            "to": b,
-            "type": "ONE_TO_MANY",
-            "label": ""
-        })
-
-    if "Encomenda" in names and "Cliente" in names:
-        if not any(r["from"] == "Encomenda" and r["to"] == "Cliente" for r in fixed_relations):
-            _add_relation("Encomenda", "Cliente")
-
-    if "Encomenda" in names and "Produto" in names:
-        if not any(r["from"] == "Encomenda" and r["to"] == "Produto" for r in fixed_relations):
-            _add_relation("Encomenda", "Produto")
+        _add_relation(
+            fixed_relations,
+            seen_relation_pairs,
+            from_obj,
+            to_obj,
+            rel_type,
+            label
+        )
 
     # =========================
-    # 🔥 CONNECT SUPPORT ENTITIES
+    # AUTO-FIX CANONICAL DOMAIN RELATIONS
     # =========================
 
-    for obj in fixed_objects:
-        name = obj["name"].lower()
+    for left, right, rel_type in DOMAIN_RELATION_SPECS:
+        left_token = _canonical_token(left)
+        right_token = _canonical_token(right)
 
-        if any(k in name for k in ["log", "historico", "config"]):
-            main = fixed_objects[0]["name"]
+        if left_token in name_by_token and right_token in name_by_token:
+            _add_relation(
+                fixed_relations,
+                seen_relation_pairs,
+                name_by_token[left_token],
+                name_by_token[right_token],
+                rel_type,
+                ""
+            )
 
-            if not any(r["to"] == obj["name"] for r in fixed_relations):
-                fixed_relations.append({
-                    "from": main,
-                    "to": obj["name"],
-                    "type": "ONE_TO_MANY",
-                    "label": ""
-                })
+    # =========================
+    # CONTROLLED SUPPORT RELATIONS
+    # =========================
+
+    main_entity = _choose_main_entity(object_names_list)
+
+    historico = name_by_token.get("historico")
+    logsistema = name_by_token.get("logsistema")
+    configuracao = name_by_token.get("configuracao")
+
+    if main_entity and historico and main_entity != historico:
+        _add_relation(
+            fixed_relations,
+            seen_relation_pairs,
+            main_entity,
+            historico,
+            "ONE_TO_MANY",
+            ""
+        )
+
+    if main_entity and logsistema and main_entity != logsistema:
+        _add_relation(
+            fixed_relations,
+            seen_relation_pairs,
+            main_entity,
+            logsistema,
+            "ONE_TO_MANY",
+            ""
+        )
+
+    if configuracao and logsistema and configuracao != logsistema:
+        _add_relation(
+            fixed_relations,
+            seen_relation_pairs,
+            configuracao,
+            logsistema,
+            "ONE_TO_MANY",
+            ""
+        )
 
     # =========================
     # WORKSPACES
@@ -188,25 +470,38 @@ def hard_validate(blueprint: dict) -> dict:
         if not isinstance(ws, dict):
             continue
 
-        name = ws.get("name", "").strip()
+        name = str(ws.get("name", "")).strip()
+
         if not name or name in seen_ws_names:
             continue
 
         seen_ws_names.add(name)
 
+        raw_ws_objects = ws.get("objects", [])
+        if not isinstance(raw_ws_objects, list):
+            raw_ws_objects = []
+
         ws_objects = [
-            o for o in ws.get("objects", [])
+            o for o in raw_ws_objects
             if o in object_names
         ]
 
+        primary_entity = ws.get("primary_entity", "")
+        if primary_entity not in object_names:
+            primary_entity = ws_objects[0] if ws_objects else ""
+
+        permissions = ws.get("permissions", ["VER", "CRIAR", "EDITAR", "APAGAR"])
+        if not isinstance(permissions, list):
+            permissions = ["VER"]
+
         fixed_workspaces.append({
             "name": name,
-            "description": ws.get("description", ""),
-            "icon": ws.get("icon", "grid"),
-            "color": ws.get("color", "#6B7280"),
+            "description": str(ws.get("description", "")).strip(),
+            "icon": str(ws.get("icon", "grid")).strip() or "grid",
+            "color": str(ws.get("color", "#6B7280")).strip() or "#6B7280",
             "objects": list(dict.fromkeys(ws_objects)),
-            "primary_entity": ws.get("primary_entity", ws_objects[0] if ws_objects else ""),
-            "permissions": ws.get("permissions", ["view", "create", "edit", "delete"])
+            "primary_entity": primary_entity,
+            "permissions": list(dict.fromkeys([str(p).strip() for p in permissions if str(p).strip()]))
         })
 
     # =========================
@@ -220,32 +515,36 @@ def hard_validate(blueprint: dict) -> dict:
         if not isinstance(action, dict):
             continue
 
-        name = action.get("name", "").strip()
+        name = str(action.get("name", "")).strip()
+
         if not name or name in seen_action_names:
             continue
 
         seen_action_names.add(name)
 
-        action_type = action.get("type", "DOMAIN_ACTION")
-        if action_type not in VALID_ACTION_TYPES:
-            action_type = "DOMAIN_ACTION"
+        action_type = _normalize_action_type(action.get("type", "DOMAIN_ACTION"))
+        trigger = _normalize_trigger(action.get("trigger", "manual"))
 
-        trigger = action.get("trigger", "manual")
-        if trigger not in VALID_TRIGGERS:
-            trigger = "manual"
+        entities_involved = [
+            e for e in _as_list(action.get("entities_involved", []))
+            if e in object_names
+        ]
+
+        if not entities_involved:
+            low_name = name.lower()
+            for obj_name in object_names:
+                if obj_name.lower() in low_name:
+                    entities_involved.append(obj_name)
 
         fixed_actions.append({
             "name": name,
             "type": action_type,
-            "description": action.get("description", ""),
+            "description": str(action.get("description", "")).strip(),
             "trigger": trigger,
-            "entities_involved": [
-                e for e in action.get("entities_involved", [])
-                if e in object_names
-            ],
-            "steps": action.get("steps", []),
-            "preconditions": action.get("preconditions", []),
-            "postconditions": action.get("postconditions", [])
+            "entities_involved": list(dict.fromkeys(entities_involved)),
+            "steps": _as_list(action.get("steps", [])),
+            "preconditions": _as_list(action.get("preconditions", [])),
+            "postconditions": _as_list(action.get("postconditions", []))
         })
 
     fixed_blueprint = {
@@ -257,6 +556,7 @@ def hard_validate(blueprint: dict) -> dict:
     }
 
     passed = len(errors) == 0
+
     print(f"[validator:hard] {'PASSED' if passed else 'FAILED'}")
 
     return {
@@ -280,32 +580,43 @@ def soft_validate(blueprint: dict, prompt: str = "") -> dict:
     actions = blueprint.get("actions", [])
     workspaces = blueprint.get("workspaces", [])
 
-    object_names = {o["name"] for o in objects}
+    object_names = {o["name"] for o in objects if isinstance(o, dict)}
 
-    # 🔥 ACTION QUALITY CHECK
     for action in actions:
-        if not action.get("steps"):
-            warnings.append(f"Action '{action['name']}' has no steps")
+        if not isinstance(action, dict):
+            continue
 
-        if len(action.get("steps", [])) < 2:
-            suggestions.append(f"Enrich action '{action['name']}' with more steps")
+        action_name = action.get("name", "AçãoSemNome")
+        steps = action.get("steps", [])
 
-    # 🔥 ORPHAN OBJECTS
+        if not steps:
+            warnings.append(f"Action '{action_name}' has no steps")
+
+        if len(steps) < 2:
+            suggestions.append(f"Enrich action '{action_name}' with more steps")
+
     connected = set()
+
     for rel in relations:
-        connected.add(rel["from"])
-        connected.add(rel["to"])
+        if not isinstance(rel, dict):
+            continue
+
+        connected.add(rel.get("from"))
+        connected.add(rel.get("to"))
 
     for obj in object_names:
         if obj not in connected and len(objects) > 2:
             warnings.append(f"Object '{obj}' is isolated")
 
-    # 🔥 WORKSPACE CHECK
     if not workspaces:
         warnings.append("No workspaces defined")
 
-    # 🔥 COMPLEXITY
-    complexity = min(len(objects) * 5 + len(relations) * 3 + len(actions), 100)
+    complexity = min(
+        len(objects) * 5
+        + len(relations) * 3
+        + len(actions),
+        100
+    )
 
     return {
         "warnings": warnings,
@@ -320,33 +631,21 @@ def soft_validate(blueprint: dict, prompt: str = "") -> dict:
 
 def validate_and_fix(blueprint: dict, prompt: str = "") -> dict:
     hard = hard_validate(blueprint)
-    fixed = hard["fixed_blueprint"]
+    fixed = hard.get("fixed_blueprint", blueprint)
 
     soft = soft_validate(fixed, prompt)
 
+    hard_summary = {
+        "passed": hard.get("passed", False),
+        "errors": hard.get("errors", []),
+        "warnings": hard.get("warnings", []),
+        "fixed_blueprint": None
+    }
+
     fixed["_validation"] = {
-        "hard": hard,
+        "hard": hard_summary,
         "soft": soft
     }
 
     print("[validator] complete")
     return fixed
-
-
-# =========================
-# TYPE INFERENCE
-# =========================
-
-def _infer_type(field_name: str) -> str:
-    fn = field_name.lower()
-
-    if any(k in fn for k in ["preco", "valor", "total"]):
-        return "float"
-    if "id" in fn:
-        return "integer"
-    if "data" in fn:
-        return "datetime"
-    if "ativo" in fn:
-        return "boolean"
-
-    return "string"
