@@ -71,8 +71,11 @@ def _normalize_output(data: dict) -> list:
 # 🔥 CORE LOGIC
 # =========================
 
-def _infer_relations(plan: dict):
-    entities = {e["name"] for e in plan.get("entities", [])}
+def _infer_relations(plan: dict, entity_names: list = None):
+    if entity_names is None:
+        entities = {e["name"] for e in plan.get("entities", []) if e.get("name")}
+    else:
+        entities = {name for name in entity_names if name}
     relations = []
     seen = set()
 
@@ -116,14 +119,25 @@ def _infer_relations(plan: dict):
 # MAIN
 # =========================
 
-def generate_relations(plan: dict):
+def generate_relations(plan: dict, objects_data: dict = None):
 
-    # 🔥 Extrair APENAS os nomes das entidades para reduzir o uso de tokens/VRAM
-    entity_names = [e.get("name") for e in plan.get("entities", []) if "name" in e]
+    # Preferir os objetos finais já gerados; se não existirem, usar o plano
+    if objects_data and isinstance(objects_data, dict) and objects_data.get("objects"):
+        entity_names = [
+            obj.get("name")
+            for obj in objects_data.get("objects", [])
+            if isinstance(obj, dict) and obj.get("name")
+        ]
+    else:
+        entity_names = [
+            e.get("name")
+            for e in plan.get("entities", [])
+            if isinstance(e, dict) and e.get("name")
+        ]
     
     if not entity_names:
         print("[generator_relations] Nenhuma entidade encontrada para relacionar.")
-        return {"relations": _infer_relations(plan)}
+        return {"relations": _infer_relations(plan, entity_names)}
 
     # 🔥 Prompt ultra focado
     prompt = f"""
@@ -163,7 +177,7 @@ def generate_relations(plan: dict):
     except Exception as e:
         print(f"[generator_relations] erro LLM: {e}")
 
-    inferred = _infer_relations(plan)
+    inferred = _infer_relations(plan, entity_names)
 
     # 🔥 MERGE
     final = []
