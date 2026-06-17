@@ -105,18 +105,62 @@
                 <div id="db-preview-section" class="hidden">
                     <div class="section-header"><i class="fa-solid fa-database text-emerald-400"></i><span>Preview Base de Dados / SQL Server</span></div>
                     <div id="db-preview-grid" class="grid grid-cols-2 gap-8 mb-8"></div>
-                    <div id="db-sql-card" class="component-card border-l-4 border-l-emerald-600 hidden">
-                        <div class="flex items-center justify-between gap-4 mb-4">
-                            <div class="flex items-center gap-2.5">
-                                <i class="fa-solid fa-code text-emerald-400"></i>
-                                <h3 class="font-bold text-zinc-100">SQL Preview</h3>
+
+                    <div id="db-tables-card" class="component-card border-l-4 border-l-emerald-600 hidden">
+                        <div class="flex items-start justify-between gap-4 mb-5">
+                            <div>
+                                <div class="flex items-center gap-2.5 mb-2">
+                                    <i class="fa-solid fa-table-list text-emerald-400"></i>
+                                    <h3 class="font-bold text-zinc-100">Estrutura das Tabelas</h3>
+                                </div>
+                                <p class="text-xs text-zinc-500 leading-relaxed">
+                                    Revê os nomes finais das tabelas, campos, tipos e origem antes de avançar para SQL Server.
+                                </p>
                             </div>
-                            <button id="copy-sql-btn" class="px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs font-medium rounded border border-zinc-800 transition-colors">
-                                Copiar SQL
+                            <span class="px-2 py-1 bg-emerald-500/10 text-emerald-400 text-[10px] font-bold rounded border border-emerald-500/20 uppercase tracking-wider">
+                                Review
+                            </span>
+                        </div>
+                        <div id="db-tables-preview" class="space-y-8"></div>
+                    </div>
+
+                    <div id="db-relations-card" class="component-card border-l-4 border-l-indigo-600 hidden mt-8">
+                        <div class="flex items-center gap-2.5 mb-4">
+                            <i class="fa-solid fa-link text-indigo-400"></i>
+                            <h3 class="font-bold text-zinc-100">Relações da Base de Dados</h3>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-xs border-collapse">
+                                <thead>
+                                    <tr class="text-left text-zinc-500 border-b border-zinc-800 uppercase tracking-wider text-[10px]">
+                                        <th class="py-2 pr-4">Tipo</th>
+                                        <th class="py-2 pr-4">Tabela Origem</th>
+                                        <th class="py-2 pr-4">Campo</th>
+                                        <th class="py-2 pr-4">Tabela Destino</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="db-relations-table"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="db-approval-card" class="component-card border-l-4 border-l-blue-600 hidden mt-8">
+                        <div class="flex items-center justify-between gap-4">
+                            <div>
+                                <div class="flex items-center gap-2.5 mb-2">
+                                    <i class="fa-solid fa-circle-check text-blue-400"></i>
+                                    <h3 class="font-bold text-zinc-100">Aprovação Visual</h3>
+                                </div>
+                                <p class="text-xs text-zinc-500 leading-relaxed">
+                                    Se a estrutura estiver correta, guarda o blueprint. Se quiseres mudar nomes, campos ou relações, pede a alteração no chat e volta a gerar o preview.
+                                </p>
+                            </div>
+                            <button id="approve-db-preview-btn" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-lg transition-all shadow-lg shadow-blue-950/20">
+                                Aprovar Preview
                             </button>
                         </div>
-                        <pre id="db-sql-preview" class="bg-zinc-950 border border-zinc-900 rounded-lg p-4 text-[11px] leading-relaxed text-zinc-300 overflow-x-auto whitespace-pre-wrap font-mono"></pre>
                     </div>
+
                     <div id="db-warnings-card" class="component-card border-l-4 border-l-yellow-600 hidden mt-8">
                         <div class="flex items-center gap-2.5 mb-4">
                             <i class="fa-solid fa-triangle-exclamation text-yellow-400"></i>
@@ -157,11 +201,17 @@
         const actionsGrid = document.getElementById('actions-grid');
         const dbPreviewSec = document.getElementById('db-preview-section');
         const dbPreviewGrid = document.getElementById('db-preview-grid');
-        const dbSqlCard = document.getElementById('db-sql-card');
-        const dbSqlPreview = document.getElementById('db-sql-preview');
+        const dbTablesCard = document.getElementById('db-tables-card');
+        const dbTablesPreview = document.getElementById('db-tables-preview');
+        const dbRelationsCard = document.getElementById('db-relations-card');
+        const dbRelationsTable = document.getElementById('db-relations-table');
+        const dbApprovalCard = document.getElementById('db-approval-card');
+        const approveDbPreviewBtn = document.getElementById('approve-db-preview-btn');
         const dbWarningsCard = document.getElementById('db-warnings-card');
         const dbWarningsList = document.getElementById('db-warnings-list');
         const fallbackZone = document.getElementById('fallback-zone');
+
+        let lastDBPreview = null;
 
         input.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleSend(); });
         document.getElementById('send-btn').addEventListener('click', handleSend);
@@ -169,7 +219,7 @@
         document.getElementById('clear-btn').addEventListener('click', handleClear);
         saveCacheBtn.addEventListener('click', handleSaveCache); // Novo evento
         dbPreviewBtn.addEventListener('click', handleDBPreview);
-        document.addEventListener('click', handleCopySQLClick);
+        approveDbPreviewBtn.addEventListener('click', handleApproveDBPreview);
 
         // DICIONÁRIO DE TRADUÇÃO TÉCNICA
         const ptMap = {
@@ -289,13 +339,17 @@
         function renderDBPreview(preview) {
             if (!preview || preview.success === false) return;
 
+            lastDBPreview = preview;
+
             dbPreviewSec.classList.remove('hidden');
             dbPreviewGrid.innerHTML = "";
+            dbTablesPreview.innerHTML = "";
+            dbRelationsTable.innerHTML = "";
+            dbWarningsList.innerHTML = "";
 
             const tables = Array.isArray(preview.tables) ? preview.tables : [];
             const relations = Array.isArray(preview.relations) ? preview.relations : [];
             const warnings = Array.isArray(preview.warnings) ? preview.warnings : [];
-            const sqlPreview = Array.isArray(preview.sql_preview) ? preview.sql_preview.join("\\n\\n") : "";
 
             dbPreviewGrid.insertAdjacentHTML('beforeend', `
                 <div class="component-card border-l-4 border-l-emerald-600">
@@ -303,7 +357,7 @@
                         <i class="fa-solid fa-server text-emerald-400"></i>
                         <h3 class="font-bold text-zinc-100">Target</h3>
                     </div>
-                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">Formato gerado para SQL Server Management Studio.</p>
+                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">Preview gerado para SQL Server Management Studio.</p>
                     <div class="flex flex-wrap gap-2">
                         <span class="px-2 py-0.5 bg-zinc-900 text-zinc-300 text-[11px] rounded border border-zinc-800 font-mono">${escapeHtml(preview.database_target || 'sql_server')}</span>
                         <span class="px-2 py-0.5 bg-zinc-900 text-zinc-300 text-[11px] rounded border border-zinc-800 font-mono">prefix ${escapeHtml(preview.table_prefix || 'CU')}</span>
@@ -315,29 +369,11 @@
                 <div class="component-card border-l-4 border-l-blue-600">
                     <div class="flex items-center gap-2.5 mb-3">
                         <i class="fa-solid fa-table text-blue-400"></i>
-                        <h3 class="font-bold text-zinc-100">Tabelas Geradas</h3>
+                        <h3 class="font-bold text-zinc-100">Resumo</h3>
                     </div>
-                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">${tables.length} tabela(s), usando apenas objetos e relações.</p>
+                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">${tables.length} tabela(s) e ${relations.length} relação(ões) preparadas.</p>
                     <div class="flex flex-wrap gap-2">
                         ${tables.map(t => `<span class="px-2 py-0.5 bg-zinc-900 text-blue-300 text-[11px] rounded border border-zinc-800 font-mono">${escapeHtml(t.table_name)}</span>`).join('')}
-                    </div>
-                </div>
-            `);
-
-            dbPreviewGrid.insertAdjacentHTML('beforeend', `
-                <div class="component-card border-l-4 border-l-indigo-600">
-                    <div class="flex items-center gap-2.5 mb-3">
-                        <i class="fa-solid fa-link text-indigo-400"></i>
-                        <h3 class="font-bold text-zinc-100">Relações DB</h3>
-                    </div>
-                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">${relations.length} relação(ões) geradas via stored procedure.</p>
-                    <div class="space-y-2">
-                        ${relations.slice(0, 6).map(r => `
-                            <div class="text-[11px] text-zinc-400 font-mono bg-zinc-950 border border-zinc-900 rounded p-2">
-                                ${escapeHtml(r.from_table)}.${escapeHtml(r.from_field)} → ${escapeHtml(r.to_table)}
-                            </div>
-                        `).join('')}
-                        ${relations.length > 6 ? `<div class="text-[11px] text-zinc-600">+ ${relations.length - 6} relações no SQL preview</div>` : ''}
                     </div>
                 </div>
             `);
@@ -346,22 +382,114 @@
                 <div class="component-card border-l-4 border-l-purple-600">
                     <div class="flex items-center gap-2.5 mb-3">
                         <i class="fa-solid fa-filter text-purple-400"></i>
-                        <h3 class="font-bold text-zinc-100">Secções Ignoradas</h3>
+                        <h3 class="font-bold text-zinc-100">Usado na BD</h3>
                     </div>
-                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">A base de dados usa apenas objetos e relações.</p>
+                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">A base de dados usa só objetos e relações.</p>
+                    <div class="flex flex-wrap gap-2">
+                        ${(preview.uses_only || []).map(x => `<span class="px-2 py-0.5 bg-zinc-900 text-emerald-300 text-[11px] rounded border border-zinc-800 font-mono">${escapeHtml(x)}</span>`).join('')}
+                    </div>
+                </div>
+            `);
+
+            dbPreviewGrid.insertAdjacentHTML('beforeend', `
+                <div class="component-card border-l-4 border-l-zinc-600">
+                    <div class="flex items-center gap-2.5 mb-3">
+                        <i class="fa-solid fa-eye-slash text-zinc-400"></i>
+                        <h3 class="font-bold text-zinc-100">Ignorado na BD</h3>
+                    </div>
+                    <p class="text-xs text-zinc-400 mb-4 leading-relaxed">Continua no blueprint da aplicação, mas não entra na base de dados.</p>
                     <div class="flex flex-wrap gap-2">
                         ${(preview.ignored_blueprint_sections || []).map(x => `<span class="px-2 py-0.5 bg-zinc-900 text-zinc-500 text-[11px] rounded border border-zinc-800 font-mono">${escapeHtml(x)}</span>`).join('')}
                     </div>
                 </div>
             `);
 
-            if (sqlPreview) {
-                dbSqlPreview.textContent = sqlPreview;
-                dbSqlCard.classList.remove('hidden');
+            if (tables.length > 0) {
+                dbTablesCard.classList.remove('hidden');
+
+                tables.forEach(table => {
+                    const fields = Array.isArray(table.fields) ? table.fields : [];
+
+                    const rows = fields.map(field => {
+                        const badges = [];
+
+                        if (field.primary_key) {
+                            badges.push(`<span class="px-1.5 py-0.5 bg-blue-500/10 text-blue-300 border border-blue-500/20 rounded text-[9px] font-bold uppercase">PK</span>`);
+                        }
+
+                        if (field.system_field) {
+                            badges.push(`<span class="px-1.5 py-0.5 bg-zinc-800 text-zinc-400 border border-zinc-700 rounded text-[9px] font-bold uppercase">Sistema</span>`);
+                        } else if (field.relation_field) {
+                            badges.push(`<span class="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded text-[9px] font-bold uppercase">Relação</span>`);
+                        } else {
+                            badges.push(`<span class="px-1.5 py-0.5 bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded text-[9px] font-bold uppercase">User</span>`);
+                        }
+
+                        return `
+                            <tr class="border-b border-zinc-900 hover:bg-zinc-900/40 transition-colors">
+                                <td class="py-2.5 pr-4 font-mono text-blue-300">${escapeHtml(field.campo)}</td>
+                                <td class="py-2.5 pr-4 text-zinc-400">${escapeHtml(field.display || '')}</td>
+                                <td class="py-2.5 pr-4 font-mono text-zinc-300">${escapeHtml(field.datatype || '')}</td>
+                                <td class="py-2.5 pr-4">${badges.join(' ')}</td>
+                                <td class="py-2.5 pr-4 text-zinc-500">${escapeHtml(field.source_field || field.source || '')}</td>
+                            </tr>
+                        `;
+                    }).join('');
+
+                    dbTablesPreview.insertAdjacentHTML('beforeend', `
+                        <div class="bg-zinc-950 border border-zinc-900 rounded-xl overflow-hidden">
+                            <div class="px-4 py-3 bg-zinc-900/60 border-b border-zinc-800 flex items-center justify-between gap-4">
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <i class="fa-solid fa-table text-emerald-400"></i>
+                                        <h4 class="font-bold text-zinc-100">${escapeHtml(table.table_name)}</h4>
+                                    </div>
+                                    <p class="text-[11px] text-zinc-500 mt-1">
+                                        origem: ${escapeHtml(table.source_object)} · entidade: ${escapeHtml(table.english_entity)} · PK: <span class="font-mono">${escapeHtml(table.primary_key)}</span>
+                                    </p>
+                                </div>
+                                <span class="px-2 py-0.5 bg-zinc-950 text-zinc-400 text-[10px] rounded border border-zinc-800 font-mono">${fields.length} campos</span>
+                            </div>
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-xs border-collapse">
+                                    <thead>
+                                        <tr class="text-left text-zinc-500 border-b border-zinc-900 uppercase tracking-wider text-[10px]">
+                                            <th class="py-2.5 px-4">Campo</th>
+                                            <th class="py-2.5 pr-4">Display</th>
+                                            <th class="py-2.5 pr-4">Datatype</th>
+                                            <th class="py-2.5 pr-4">Origem</th>
+                                            <th class="py-2.5 pr-4">Campo Original</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${rows}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    `);
+                });
             } else {
-                dbSqlPreview.textContent = "";
-                dbSqlCard.classList.add('hidden');
+                dbTablesCard.classList.add('hidden');
             }
+
+            if (relations.length > 0) {
+                dbRelationsCard.classList.remove('hidden');
+                dbRelationsTable.innerHTML = relations.map(r => `
+                    <tr class="border-b border-zinc-900 hover:bg-zinc-900/40 transition-colors">
+                        <td class="py-2.5 pr-4">
+                            <span class="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded text-[9px] font-bold uppercase">${escapeHtml(r.type || '')}</span>
+                        </td>
+                        <td class="py-2.5 pr-4 font-mono text-zinc-300">${escapeHtml(r.from_table || '')}</td>
+                        <td class="py-2.5 pr-4 font-mono text-blue-300">${escapeHtml(r.from_field || '')}</td>
+                        <td class="py-2.5 pr-4 font-mono text-zinc-300">${escapeHtml(r.to_table || '')}</td>
+                    </tr>
+                `).join('');
+            } else {
+                dbRelationsCard.classList.add('hidden');
+            }
+
+            dbApprovalCard.classList.remove('hidden');
 
             if (warnings.length > 0) {
                 dbWarningsList.innerHTML = warnings.map(w => `
@@ -378,18 +506,21 @@
             dbPreviewSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
-        function handleCopySQLClick(e) {
-            if (!e.target || e.target.id !== 'copy-sql-btn') return;
+        function handleApproveDBPreview() {
+            if (!lastDBPreview) return;
 
-            const sql = dbSqlPreview.textContent || '';
-            if (!sql) return;
+            const originalHTML = approveDbPreviewBtn.innerHTML;
+            approveDbPreviewBtn.innerHTML = '<i class="fa-solid fa-check"></i> Preview aprovado';
+            approveDbPreviewBtn.classList.replace('bg-blue-600', 'bg-emerald-600');
+            approveDbPreviewBtn.classList.replace('hover:bg-blue-500', 'hover:bg-emerald-500');
 
-            navigator.clipboard.writeText(sql).then(() => {
-                const btn = document.getElementById('copy-sql-btn');
-                const old = btn.innerHTML;
-                btn.innerHTML = 'Copiado';
-                setTimeout(() => { btn.innerHTML = old; }, 1500);
-            });
+            appendMessage('ai', `<div class="flex items-center gap-2"><i class="fa-solid fa-circle-check text-emerald-500"></i> Preview da base de dados aprovado visualmente. Para executar no SQL Server, o próximo passo será usar esta estrutura aprovada.</div>`);
+
+            setTimeout(() => {
+                approveDbPreviewBtn.innerHTML = originalHTML;
+                approveDbPreviewBtn.classList.replace('bg-emerald-600', 'bg-blue-600');
+                approveDbPreviewBtn.classList.replace('hover:bg-emerald-500', 'hover:bg-blue-500');
+            }, 2500);
         }
 
         // ==========================================
@@ -520,7 +651,9 @@
             relationsGrid.innerHTML = ""; relationsSec.classList.add('hidden');
             actionsGrid.innerHTML = ""; actionsSec.classList.add('hidden');
             dbPreviewGrid.innerHTML = ""; dbPreviewSec.classList.add('hidden');
-            dbSqlPreview.textContent = ""; dbSqlCard.classList.add('hidden');
+            dbTablesPreview.innerHTML = ""; dbTablesCard.classList.add('hidden');
+            dbRelationsTable.innerHTML = ""; dbRelationsCard.classList.add('hidden');
+            dbApprovalCard.classList.add('hidden'); lastDBPreview = null;
             dbWarningsList.innerHTML = ""; dbWarningsCard.classList.add('hidden');
             fallbackZone.innerHTML = ""; fallbackZone.classList.add('hidden');
 
