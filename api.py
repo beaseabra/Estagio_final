@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from main import run_pipeline
 from db_preview_routes import router as db_preview_router
+from framework_metadata_preflight_routes import router as framework_metadata_preflight_router
 
 
 logger = logging.getLogger("aibizcore.api")
