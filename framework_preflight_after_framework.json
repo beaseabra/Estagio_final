@@ -1,0 +1,1627 @@
+{
+  "success": true,
+  "mode": "framework_metadata_preflight",
+  "safe_mode": "NO_DATABASE_WRITES",
+  "can_execute": false,
+  "blocking_issues": [
+    "CSYSObject já existe para a tabela CUTestePreflightA. objectid(s): 7199549c-2ca5-4b17-90f1-875517216384",
+    "CSYSView/Listagem já existe com o nome 'Teste Preflight A'. viewid(s): 1c4b2203-063e-47f5-a970-184f8ff99d97",
+    "CSYSAction já existe: Teste Preflight A - Listagem, Teste Preflight A - Novo",
+    "CSYSObject já existe para a tabela CUTestePreflightB. objectid(s): 967a2a62-1151-45ff-95a9-7736c5486347",
+    "CSYSView/Listagem já existe com o nome 'Teste Preflight B'. viewid(s): 6fa8993f-15e7-4afd-905a-bd754cf4be8c",
+    "CSYSAction já existe: Teste Preflight B - Listagem, Teste Preflight B - Novo"
+  ],
+  "warnings": [],
+  "plan_summary": {
+    "objects": 2,
+    "framework_mode": "framework_metadata_plan_dry_run",
+    "framework_safe_mode": "NO_DATABASE_WRITES"
+  },
+  "adapter_warnings": [],
+  "reference_id_check": {
+    "success": true,
+    "missing": [],
+    "details": [
+      {
+        "key": "application_tab_auxiliares",
+        "table": "CSYSApplication",
+        "id_column": "applicationid",
+        "expected_id": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+        "expected_name": "Tab. Auxiliares",
+        "found": true,
+        "actual_name": "Tab. Auxiliares"
+      },
+      {
+        "key": "role_designer",
+        "table": "CSYSRole",
+        "id_column": "roleid",
+        "expected_id": "0A1958E3-5D3A-44DF-B9D4-3EDBD680BB94",
+        "expected_name": "Designer",
+        "found": true,
+        "actual_name": "Designer"
+      },
+      {
+        "key": "role_adm_tab_auxiliares",
+        "table": "CSYSRole",
+        "id_column": "roleid",
+        "expected_id": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+        "expected_name": "Adm Tab. Auxiliares",
+        "found": true,
+        "actual_name": "Adm Tab. Auxiliares"
+      },
+      {
+        "key": "base_object_utilizador_base",
+        "table": "CSYSObject",
+        "id_column": "objectid",
+        "expected_id": "28495E60-D823-4BC6-AF46-2ED4A54E2A2E",
+        "expected_name": "Utilizador (base)",
+        "found": true,
+        "actual_name": "Utilizador (base)"
+      },
+      {
+        "key": "base_object_listagem",
+        "table": "CSYSObject",
+        "id_column": "objectid",
+        "expected_id": "7B4FF922-86F4-457B-8E4C-FF5DC82CDC18",
+        "expected_name": "Listagem",
+        "found": true,
+        "actual_name": "Listagem"
+      }
+    ]
+  },
+  "object_checks": [
+    {
+      "object_name": "Teste Preflight A",
+      "table_name": "CUTestePreflightA",
+      "primary_key": "testepreflightaid",
+      "critical_rule": {
+        "CSYSObject.nameunc": "CUTestePreflightA",
+        "CSYSObject.pkfieldname": "testepreflightaid",
+        "must_match_physical_table": true
+      },
+      "physical_table": {
+        "table_name": "CUTestePreflightA",
+        "primary_key_expected": "testepreflightaid",
+        "table_exists": true,
+        "physical_columns": [
+          "testepreflightaid",
+          "creationdate",
+          "descendantlocked",
+          "description",
+          "locked",
+          "modificationdate",
+          "name",
+          "ostate",
+          "state",
+          "status",
+          "creationuserid",
+          "modificationuserid",
+          "code",
+          "value",
+          "date"
+        ],
+        "physical_primary_keys": [
+          "testepreflightaid"
+        ],
+        "planned_columns": [
+          "code",
+          "creationdate",
+          "creationuserid",
+          "date",
+          "descendantlocked",
+          "description",
+          "locked",
+          "modificationdate",
+          "modificationuserid",
+          "name",
+          "ostate",
+          "state",
+          "status",
+          "testepreflightaid",
+          "value"
+        ],
+        "missing_columns": [],
+        "extra_columns": [],
+        "blocking_issues": [],
+        "warnings": []
+      },
+      "existing_framework_metadata": {
+        "objects_by_table": [
+          {
+            "objectid": "7199549c-2ca5-4b17-90f1-875517216384",
+            "name": "Teste Preflight A",
+            "nameunc": "CUTestePreflightA",
+            "pkfieldname": "testepreflightaid",
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          }
+        ],
+        "objects_by_name": [
+          {
+            "objectid": "7199549c-2ca5-4b17-90f1-875517216384",
+            "name": "Teste Preflight A",
+            "nameunc": "CUTestePreflightA",
+            "pkfieldname": "testepreflightaid",
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          }
+        ],
+        "views_by_name": [
+          {
+            "viewid": "1c4b2203-063e-47f5-a970-184f8ff99d97",
+            "name": "Teste Preflight A",
+            "viewtype": "default",
+            "refobjectid": "7199549c-2ca5-4b17-90f1-875517216384",
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          }
+        ],
+        "actions_by_name": [
+          {
+            "actionid": "cf8bb284-da92-4433-b673-024c8e30892d",
+            "name": "Teste Preflight A - Listagem",
+            "type": "view",
+            "objectaction": null,
+            "baseobjectid": "7b4ff922-86f4-457b-8e4c-ff5dc82cdc18",
+            "objectid": "1c4b2203-063e-47f5-a970-184f8ff99d97",
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          },
+          {
+            "actionid": "42067c47-5273-40ac-8614-97c2745f3568",
+            "name": "Teste Preflight A - Novo",
+            "type": "object",
+            "objectaction": "new",
+            "baseobjectid": "7199549c-2ca5-4b17-90f1-875517216384",
+            "objectid": null,
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          }
+        ]
+      },
+      "metadata_conflicts": [
+        "CSYSObject já existe para a tabela CUTestePreflightA. objectid(s): 7199549c-2ca5-4b17-90f1-875517216384",
+        "CSYSView/Listagem já existe com o nome 'Teste Preflight A'. viewid(s): 1c4b2203-063e-47f5-a970-184f8ff99d97",
+        "CSYSAction já existe: Teste Preflight A - Listagem, Teste Preflight A - Novo"
+      ]
+    },
+    {
+      "object_name": "Teste Preflight B",
+      "table_name": "CUTestePreflightB",
+      "primary_key": "testepreflightbid",
+      "critical_rule": {
+        "CSYSObject.nameunc": "CUTestePreflightB",
+        "CSYSObject.pkfieldname": "testepreflightbid",
+        "must_match_physical_table": true
+      },
+      "physical_table": {
+        "table_name": "CUTestePreflightB",
+        "primary_key_expected": "testepreflightbid",
+        "table_exists": true,
+        "physical_columns": [
+          "testepreflightbid",
+          "creationdate",
+          "descendantlocked",
+          "description",
+          "locked",
+          "modificationdate",
+          "name",
+          "ostate",
+          "state",
+          "status",
+          "creationuserid",
+          "modificationuserid",
+          "referencia",
+          "stateteste",
+          "testepreflightaid"
+        ],
+        "physical_primary_keys": [
+          "testepreflightbid"
+        ],
+        "planned_columns": [
+          "creationdate",
+          "creationuserid",
+          "descendantlocked",
+          "description",
+          "locked",
+          "modificationdate",
+          "modificationuserid",
+          "name",
+          "ostate",
+          "referencia",
+          "state",
+          "stateteste",
+          "status",
+          "testepreflightaid",
+          "testepreflightbid"
+        ],
+        "missing_columns": [],
+        "extra_columns": [],
+        "blocking_issues": [],
+        "warnings": []
+      },
+      "existing_framework_metadata": {
+        "objects_by_table": [
+          {
+            "objectid": "967a2a62-1151-45ff-95a9-7736c5486347",
+            "name": "Teste Preflight B",
+            "nameunc": "CUTestePreflightB",
+            "pkfieldname": "testepreflightbid",
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          }
+        ],
+        "objects_by_name": [
+          {
+            "objectid": "967a2a62-1151-45ff-95a9-7736c5486347",
+            "name": "Teste Preflight B",
+            "nameunc": "CUTestePreflightB",
+            "pkfieldname": "testepreflightbid",
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          }
+        ],
+        "views_by_name": [
+          {
+            "viewid": "6fa8993f-15e7-4afd-905a-bd754cf4be8c",
+            "name": "Teste Preflight B",
+            "viewtype": "default",
+            "refobjectid": "967a2a62-1151-45ff-95a9-7736c5486347",
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          }
+        ],
+        "actions_by_name": [
+          {
+            "actionid": "f5425aec-e674-46c5-9928-e11a2741369b",
+            "name": "Teste Preflight B - Listagem",
+            "type": "view",
+            "objectaction": null,
+            "baseobjectid": "7b4ff922-86f4-457b-8e4c-ff5dc82cdc18",
+            "objectid": "6fa8993f-15e7-4afd-905a-bd754cf4be8c",
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          },
+          {
+            "actionid": "71d827b6-4578-4d4b-8a89-73e4842a8cb8",
+            "name": "Teste Preflight B - Novo",
+            "type": "object",
+            "objectaction": "new",
+            "baseobjectid": "967a2a62-1151-45ff-95a9-7736c5486347",
+            "objectid": null,
+            "status": "Pub",
+            "state": "Active",
+            "ostate": "Active"
+          }
+        ]
+      },
+      "metadata_conflicts": [
+        "CSYSObject já existe para a tabela CUTestePreflightB. objectid(s): 967a2a62-1151-45ff-95a9-7736c5486347",
+        "CSYSView/Listagem já existe com o nome 'Teste Preflight B'. viewid(s): 6fa8993f-15e7-4afd-905a-bd754cf4be8c",
+        "CSYSAction já existe: Teste Preflight B - Listagem, Teste Preflight B - Novo"
+      ]
+    }
+  ],
+  "plan": {
+    "success": true,
+    "mode": "framework_metadata_plan_dry_run",
+    "safe_mode": "NO_DATABASE_WRITES",
+    "warning": "Este resultado é apenas um plano. Não executa INSERT, UPDATE, DELETE nem altera a framework.",
+    "framework_reference_ids": {
+      "application_tab_auxiliares": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+      "role_designer": "0A1958E3-5D3A-44DF-B9D4-3EDBD680BB94",
+      "role_adm_tab_auxiliares": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+      "base_object_utilizador_base": "28495E60-D823-4BC6-AF46-2ED4A54E2A2E",
+      "base_object_listagem": "7B4FF922-86F4-457B-8E4C-FF5DC82CDC18"
+    },
+    "input_summary": {
+      "objects": 2,
+      "relations": 1
+    },
+    "converted_sqlserver_summary": {
+      "tables": 2,
+      "relations": 5,
+      "warnings": []
+    },
+    "object_plans": [
+      {
+        "source_object": "Teste Preflight A",
+        "table_name": "CUTestePreflightA",
+        "primary_key": "testepreflightaid",
+        "planned_ids": {
+          "objectid": "<OBJECT_ID:CUTestePreflightA>",
+          "objectlayoutid": "<LAYOUT_ID:CUTestePreflightA>",
+          "objectlayoutsectionid": "<LAYOUT_SECTION_ID:CUTestePreflightA>",
+          "viewid": "<VIEW_ID:CUTestePreflightA>",
+          "action_new_id": "<ACTION_ID:CUTestePreflightA_Novo>",
+          "action_view_id": "<ACTION_ID:CUTestePreflightA_Listagem>"
+        },
+        "operations": [
+          {
+            "step": 1,
+            "operation": "UPSERT_CSYSObject",
+            "table": "CSYSObject",
+            "data": {
+              "objectid": "<OBJECT_ID:CUTestePreflightA>",
+              "name": "Teste Preflight A",
+              "description": "Teste Preflight A",
+              "nameunc": "CUTestePreflightA",
+              "pkfieldname": "testepreflightaid",
+              "status": "Pub",
+              "state": "Active",
+              "ostate": "Active",
+              "locked": 0,
+              "descendantlocked": 0,
+              "issystem": 0,
+              "ishiden": 0,
+              "ispublished": 0,
+              "defaultvalue": " <data>\n  <status>Pub</status><state>Active</state><ostate>Active</ostate><locked>false</locked>\n  <descendantlocked>false</descendantlocked>\n  </data>",
+              "baseapplicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+              "hidemenu": 0
+            }
+          },
+          {
+            "step": 2,
+            "operation": "UPSERT_CSYSObjectField_BATCH",
+            "table": "CSYSObjectField",
+            "count": 13,
+            "data": [
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_testepreflightaid>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "testepreflightaid",
+                "nameunc": "testepreflightaid",
+                "isprimarykey": 1,
+                "datatype": "Guid",
+                "systemdatatype": 36,
+                "displaytype": "Guid",
+                "fieldorder": null,
+                "maxlength": 16,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 0,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "generated_primary_key",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_creationdate>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "Criado em",
+                "nameunc": "creationdate",
+                "isprimarykey": 0,
+                "datatype": "DateTimeOffset",
+                "systemdatatype": 43,
+                "displaytype": "DateTime",
+                "fieldorder": null,
+                "maxlength": 10,
+                "precision": 34,
+                "scale": 7,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_descendantlocked>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "descendantlocked",
+                "nameunc": "descendantlocked",
+                "isprimarykey": 0,
+                "datatype": "Boolean",
+                "systemdatatype": 104,
+                "displaytype": "Boolean",
+                "fieldorder": null,
+                "maxlength": 1,
+                "precision": 1,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_description>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "Descrição",
+                "nameunc": "description",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 2048,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_locked>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "locked",
+                "nameunc": "locked",
+                "isprimarykey": 0,
+                "datatype": "Boolean",
+                "systemdatatype": 104,
+                "displaytype": "Boolean",
+                "fieldorder": null,
+                "maxlength": 1,
+                "precision": 1,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_modificationdate>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "Modificado em",
+                "nameunc": "modificationdate",
+                "isprimarykey": 0,
+                "datatype": "DateTimeOffset",
+                "systemdatatype": 43,
+                "displaytype": "DateTime",
+                "fieldorder": null,
+                "maxlength": 10,
+                "precision": 34,
+                "scale": 7,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_name>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "Nome",
+                "nameunc": "name",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_ostate>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "ostate",
+                "nameunc": "ostate",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_state>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "state",
+                "nameunc": "state",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_status>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "status",
+                "nameunc": "status",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_code>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "Codigo",
+                "nameunc": "code",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "user_field",
+                "source_field": "codigo",
+                "source_type": "string"
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_value>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "Valor",
+                "nameunc": "value",
+                "isprimarykey": 0,
+                "datatype": "Number",
+                "systemdatatype": 106,
+                "displaytype": "Number",
+                "fieldorder": null,
+                "maxlength": 9,
+                "precision": 18,
+                "scale": 2,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "user_field",
+                "source_field": "valor",
+                "source_type": "float"
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_date>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "Data",
+                "nameunc": "date",
+                "isprimarykey": 0,
+                "datatype": "DateTimeOffset",
+                "systemdatatype": 43,
+                "displaytype": "DateTime",
+                "fieldorder": null,
+                "maxlength": 10,
+                "precision": 34,
+                "scale": 7,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "user_field",
+                "source_field": "data",
+                "source_type": "date"
+              }
+            ]
+          },
+          {
+            "step": 3,
+            "operation": "UPSERT_CSYSObjectReference_BATCH",
+            "table": "CSYSObjectReference",
+            "count": 2,
+            "data": [
+              {
+                "operation": "UPSERT_CSYSObjectReference",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_creationuserid>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "referencedobjectid": "28495E60-D823-4BC6-AF46-2ED4A54E2A2E",
+                "name": "Criado por",
+                "nameunc": "creationuserid",
+                "isprimarykey": 0,
+                "referencedtype": "Picklist",
+                "isnullable": 1,
+                "relationtype": "Reference",
+                "constraintname": "FK_CUTestePreflightA_creationuserid_CSYSUser_userid",
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source_relation": {
+                  "type": "SYSTEM_USER",
+                  "from_table": "CUTestePreflightA",
+                  "from_field": "creationuserid",
+                  "to_table": "CSYSUser",
+                  "query": "exec sp_sys_create_ID_Relation 'CUTestePreflightA','creationuserid','CSYSUser', null",
+                  "source_relation": null
+                }
+              },
+              {
+                "operation": "UPSERT_CSYSObjectReference",
+                "fieldid": "<FIELD_ID:CUTestePreflightA_modificationuserid>",
+                "objectid": "<OBJECT_ID:CUTestePreflightA>",
+                "referencedobjectid": "28495E60-D823-4BC6-AF46-2ED4A54E2A2E",
+                "name": "Modificado por",
+                "nameunc": "modificationuserid",
+                "isprimarykey": 0,
+                "referencedtype": "Picklist",
+                "isnullable": 1,
+                "relationtype": "Reference",
+                "constraintname": "FK_CUTestePreflightA_modificationuserid_CSYSUser_userid",
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source_relation": {
+                  "type": "SYSTEM_USER",
+                  "from_table": "CUTestePreflightA",
+                  "from_field": "modificationuserid",
+                  "to_table": "CSYSUser",
+                  "query": "exec sp_sys_create_ID_Relation 'CUTestePreflightA','modificationuserid','CSYSUser', null",
+                  "source_relation": null
+                }
+              }
+            ]
+          },
+          {
+            "step": 4,
+            "operation": "UPSERT_CSYSObjectLayout",
+            "table": "CSYSObjectLayout",
+            "data": {
+              "objectlayoutid": "<LAYOUT_ID:CUTestePreflightA>",
+              "objectid": "<OBJECT_ID:CUTestePreflightA>",
+              "name": "default layout",
+              "description": "default layout",
+              "type": "form",
+              "isdefault": 1,
+              "status": "Pub",
+              "state": "Active",
+              "ostate": "Active"
+            }
+          },
+          {
+            "step": 5,
+            "operation": "UPSERT_CSYSObjectLayoutSection",
+            "table": "CSYSObjectLayoutSection",
+            "data": {
+              "objectlayoutsectionid": "<LAYOUT_SECTION_ID:CUTestePreflightA>",
+              "objectlayoutid": "<LAYOUT_ID:CUTestePreflightA>",
+              "name": "Teste Preflight A",
+              "description": "Teste Preflight A",
+              "type": "Section",
+              "visible": 1,
+              "oderposition": 1,
+              "isreferencecontainer": 0,
+              "issubsection": 0,
+              "workingdata": "<div id=\"frontdata\">\n  <div id=\"tabstrip\" data-role=\"tabstrip\" data-animation='{\"open\":{\"effects\":\"fadeIn\"}}' >\n    <ul>\n      <li>Teste Preflight A</li>\n      <li>Administração</li>\n    </ul>\n    <div class=\"content\">\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_descendantlocked\" class=\" field \" data-bind=\"style:{color:datachange.descendantlocked_label}\"><span class=\"labelcontainer\">descendantlocked</span></label></div><div class=\"field\" ><span class=\"fieldcontainer\">descendantlocked</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_description\" class=\" field \" data-bind=\"style:{color:datachange.description_label}\"><span class=\"labelcontainer\">description</span></label></div><div class=\"field\" ><span class=\"fieldcontainer\">description</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_name\" class=\" field \" data-bind=\"style:{color:datachange.name_label}\"><span class=\"labelcontainer\">name</span></label></div><div class=\"field\" ><span class=\"fieldcontainer\">name</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_code\" class=\" field \" data-bind=\"style:{color:datachange.code_label}\"><span class=\"labelcontainer\">code</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">code</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_value\" class=\" field \" data-bind=\"style:{color:datachange.value_label}\"><span class=\"labelcontainer\">value</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">value</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_date\" class=\" field \" data-bind=\"style:{color:datachange.date_label}\"><span class=\"labelcontainer\">date</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">date</span></div></div>\n    </div>\n    <div class=\"content\">\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_testepreflightaid\" class=\" field required\" data-bind=\"style:{color:datachange.testepreflightaid_label}\"><span class=\"labelcontainer\">testepreflightaid</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">testepreflightaid</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_creationdate\" class=\" field \" data-bind=\"style:{color:datachange.creationdate_label}\"><span class=\"labelcontainer\">creationdate</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">creationdate</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_locked\" class=\" field \" data-bind=\"style:{color:datachange.locked_label}\"><span class=\"labelcontainer\">locked</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">locked</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_modificationdate\" class=\" field \" data-bind=\"style:{color:datachange.modificationdate_label}\"><span class=\"labelcontainer\">modificationdate</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">modificationdate</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_ostate\" class=\" field \" data-bind=\"style:{color:datachange.ostate_label}\"><span class=\"labelcontainer\">ostate</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">ostate</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_state\" class=\" field \" data-bind=\"style:{color:datachange.state_label}\"><span class=\"labelcontainer\">state</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">state</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_status\" class=\" field \" data-bind=\"style:{color:datachange.status_label}\"><span class=\"labelcontainer\">status</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">status</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_creationuserid\" class=\" field \" data-bind=\"style:{color:datachange.creationuserid_label}\"><span class=\"labelcontainer\">creationuserid</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">creationuserid</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_modificationuserid\" class=\" field \" data-bind=\"style:{color:datachange.modificationuserid_label}\"><span class=\"labelcontainer\">modificationuserid</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">modificationuserid</span></div></div>\n    </div>\n  </div>\n</div>",
+              "layout_rule": {
+                "editable_fields": [
+                  "descendantlocked",
+                  "description",
+                  "name"
+                ],
+                "readonly_fields": [
+                  "testepreflightaid",
+                  "creationdate",
+                  "locked",
+                  "modificationdate",
+                  "ostate",
+                  "state",
+                  "status",
+                  "code",
+                  "value",
+                  "date",
+                  "creationuserid",
+                  "modificationuserid"
+                ]
+              }
+            }
+          },
+          {
+            "step": 6,
+            "operation": "UPSERT_CSYSObjectLayoutPermission",
+            "table": "CSYSObjectLayoutPermission",
+            "data": {
+              "objectlayoutpermissionid": "<LAYOUT_PERMISSION_ID:CUTestePreflightA>",
+              "name": "Adm Tab. Auxiliares",
+              "objectlayoutid": "<LAYOUT_ID:CUTestePreflightA>",
+              "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+              "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+              "isnew": 1,
+              "isreadonly": null,
+              "oderposition": 10,
+              "status": "Pub",
+              "state": "Active",
+              "ostate": "Active"
+            }
+          },
+          {
+            "step": 7,
+            "operation": "UPSERT_CSYSView",
+            "table": "CSYSView",
+            "data": {
+              "viewid": "<VIEW_ID:CUTestePreflightA>",
+              "name": "Teste Preflight A",
+              "description": "Teste Preflight A",
+              "viewtype": "default",
+              "refobjectid": "<OBJECT_ID:CUTestePreflightA>",
+              "command": "{\"width\":300,\"height\":400,\"title\":\"Open View - Teste Preflight A\"}",
+              "serverdata": "<data>\n  <viewtype>select</viewtype>\n  <columns jsondisplaytype=\"list\">\n    <column><field>t01.testepreflightaid</field><alias>testepreflightaid</alias></column>\n    <column><field>t01.description</field><alias>description</alias></column>\n    <column><field>t01.name</field><alias>name</alias></column>\n  </columns>\n  <from haswhere=\"1\">\n    CUTestePreflightA t01 with(nolock)\n    where t01.state='Active'\n  </from>\n  <orderby jsondisplaytype=\"list\">\n    <field>t01.name asc</field>\n  </orderby>\n</data>",
+              "clientdata": "<data>\n  <definition>\n    <name>Teste Preflight A</name>\n    <description>Teste Preflight A</description>\n    <datasource>\n      <pageSize datatype=\"number\">100</pageSize>\n      <serverPaging datatype=\"boolean\">true</serverPaging>\n      <serverFiltering datatype=\"boolean\">true</serverFiltering>\n      <serverSorting datatype=\"boolean\">true</serverSorting>\n    </datasource>\n    <grid>\n      <rowtemplate/>\n      <altrowtemplate/>\n      <selectable>row</selectable>\n      <navigatable datatype=\"boolean\">true</navigatable>\n      <height>100%</height>\n      <resizable datatype=\"boolean\">true</resizable>\n      <filterable datatype=\"boolean\">true</filterable>\n      <sortable datatype=\"boolean\">true</sortable>\n      <pageable>\n        <refresh datatype=\"boolean\">true</refresh>\n        <pageSizes datatype=\"boolean\">true</pageSizes>\n        <buttonCount datatype=\"number\">5</buttonCount>\n      </pageable>\n      *       <columnMenu datatype=\"boolean\">true</columnMenu>\n      *       <columnMenu><componentType>tabbed</componentType></columnMenu>\n      <reorderable datatype=\"boolean\">true</reorderable>\n      <editable datatype=\"boolean\">false</editable>\n      <toolbar/>\n    </grid>\n  </definition>\n  <keyfield>testepreflightaid</keyfield>\n  <modelschema>\n    <testepreflightaid><type>string</type></testepreflightaid>\n    <name><type>string</type></name>\n    <description><type>string</type></description>\n  </modelschema>\n  <columns jsondisplaytype=\"list\">\n    <col>\n      <field>name</field>\n      <title>Nome</title>\n      <width datatype=\"number\">100</width>\n      <filterable datatype=\"boolean\">true</filterable>\n      <template>&lt;a href=\"javascript:\" onclick=\"flink(this,'${testepreflightaid}',null,null)\" &gt;${name}&lt;/a&gt;</template>\n    </col>\n    <col>\n      <field>description</field>\n      <title>Descrição</title>\n      <width datatype=\"number\">100</width>\n      <filterable datatype=\"boolean\">true</filterable>\n    </col>\n  </columns>\n</data>",
+              "compileddate": "<NOW>",
+              "autorefresh": 1,
+              "displaytype": "grid",
+              "status": "Pub",
+              "state": "Active",
+              "ostate": "Active"
+            }
+          },
+          {
+            "step": 8,
+            "operation": "UPSERT_CSYSAction_BATCH",
+            "table": "CSYSAction",
+            "count": 2,
+            "data": [
+              {
+                "actionid": "<ACTION_ID:CUTestePreflightA_Novo>",
+                "name": "Teste Preflight A - Novo",
+                "description": "Teste Preflight A - Novo",
+                "type": "object",
+                "objectaction": "new",
+                "baseobjectid": "<OBJECT_ID:CUTestePreflightA>",
+                "objectid": null,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active"
+              },
+              {
+                "actionid": "<ACTION_ID:CUTestePreflightA_Listagem>",
+                "name": "Teste Preflight A - Listagem",
+                "description": "Teste Preflight A - Listagem",
+                "type": "view",
+                "objectaction": null,
+                "baseobjectid": "7B4FF922-86F4-457B-8E4C-FF5DC82CDC18",
+                "objectid": "<VIEW_ID:CUTestePreflightA>",
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active"
+              }
+            ]
+          },
+          {
+            "step": 9,
+            "operation": "UPSERT_CSYSObjectAction_BATCH",
+            "table": "CSYSObjectAction",
+            "count": 2,
+            "data": [
+              {
+                "objectactionid": "<OBJECT_ACTION_ID:CUTestePreflightA_listagem>",
+                "name": "teste preflight a - listagem",
+                "actionid": "<ACTION_ID:CUTestePreflightA_Listagem>",
+                "objectid": "<VIEW_ID:CUTestePreflightA>",
+                "showtype": "toolbarbuttom",
+                "showhaswriteaccess": 1,
+                "hideaction": 0,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active"
+              },
+              {
+                "objectactionid": "<OBJECT_ACTION_ID:CUTestePreflightA_novo>",
+                "name": "Novo Teste Preflight A",
+                "actionid": "<ACTION_ID:CUTestePreflightA_Novo>",
+                "objectid": "7B4FF922-86F4-457B-8E4C-FF5DC82CDC18",
+                "showtype": "toolbarbuttom",
+                "showhaswriteaccess": 1,
+                "hideaction": 0,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active"
+              }
+            ],
+            "cleanup_rule": "Depois da geração automática, deve ficar apenas a ação 'Novo <Objeto>' associada ao objeto base 'Listagem'. Referências duplicadas/erradas devem ser removidas."
+          },
+          {
+            "step": 10,
+            "operation": "UPSERT_PERMISSIONS_AND_ROLE_PERMISSIONS",
+            "tables": [
+              "CSYSPermission",
+              "CSYSRolePermission"
+            ],
+            "data": [
+              {
+                "target": "object",
+                "permission": {
+                  "permissionid": "<PERMISSION_ID:CUTestePreflightA_object>",
+                  "name": "Tab. Auxiliares",
+                  "type": "Object",
+                  "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+                  "baseobjectid": "<OBJECT_ID:CUTestePreflightA>"
+                },
+                "role_permissions": [
+                  {
+                    "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+                    "role_name": "Adm Tab. Auxiliares",
+                    "fullpermissionmask": 63
+                  },
+                  {
+                    "roleid": "0A1958E3-5D3A-44DF-B9D4-3EDBD680BB94",
+                    "role_name": "Designer",
+                    "fullpermissionmask": 8192
+                  }
+                ]
+              },
+              {
+                "target": "view",
+                "permission": {
+                  "permissionid": "<PERMISSION_ID:CUTestePreflightA_view>",
+                  "name": "Tab. Auxiliares",
+                  "type": "View",
+                  "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+                  "baseobjectid": "<VIEW_ID:CUTestePreflightA>"
+                },
+                "role_permissions": [
+                  {
+                    "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+                    "role_name": "Adm Tab. Auxiliares",
+                    "fullpermissionmask": 1
+                  },
+                  {
+                    "roleid": "0A1958E3-5D3A-44DF-B9D4-3EDBD680BB94",
+                    "role_name": "Designer",
+                    "fullpermissionmask": 8192
+                  }
+                ]
+              },
+              {
+                "target": "action_new",
+                "permission": {
+                  "permissionid": "<PERMISSION_ID:CUTestePreflightA_action_new>",
+                  "name": "Tab. Auxiliares",
+                  "type": "Action",
+                  "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+                  "baseobjectid": "<ACTION_ID:CUTestePreflightA_Novo>"
+                },
+                "role_permissions": [
+                  {
+                    "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+                    "role_name": "Adm Tab. Auxiliares",
+                    "fullpermissionmask": 1
+                  }
+                ]
+              },
+              {
+                "target": "action_view",
+                "permission": {
+                  "permissionid": "<PERMISSION_ID:CUTestePreflightA_action_view>",
+                  "name": "Tab. Auxiliares",
+                  "type": "Action",
+                  "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+                  "baseobjectid": "<ACTION_ID:CUTestePreflightA_Listagem>"
+                },
+                "role_permissions": [
+                  {
+                    "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+                    "role_name": "Adm Tab. Auxiliares",
+                    "fullpermissionmask": 1
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "source_object": "Teste Preflight B",
+        "table_name": "CUTestePreflightB",
+        "primary_key": "testepreflightbid",
+        "planned_ids": {
+          "objectid": "<OBJECT_ID:CUTestePreflightB>",
+          "objectlayoutid": "<LAYOUT_ID:CUTestePreflightB>",
+          "objectlayoutsectionid": "<LAYOUT_SECTION_ID:CUTestePreflightB>",
+          "viewid": "<VIEW_ID:CUTestePreflightB>",
+          "action_new_id": "<ACTION_ID:CUTestePreflightB_Novo>",
+          "action_view_id": "<ACTION_ID:CUTestePreflightB_Listagem>"
+        },
+        "operations": [
+          {
+            "step": 1,
+            "operation": "UPSERT_CSYSObject",
+            "table": "CSYSObject",
+            "data": {
+              "objectid": "<OBJECT_ID:CUTestePreflightB>",
+              "name": "Teste Preflight B",
+              "description": "Teste Preflight B",
+              "nameunc": "CUTestePreflightB",
+              "pkfieldname": "testepreflightbid",
+              "status": "Pub",
+              "state": "Active",
+              "ostate": "Active",
+              "locked": 0,
+              "descendantlocked": 0,
+              "issystem": 0,
+              "ishiden": 0,
+              "ispublished": 0,
+              "defaultvalue": " <data>\n  <status>Pub</status><state>Active</state><ostate>Active</ostate><locked>false</locked>\n  <descendantlocked>false</descendantlocked>\n  </data>",
+              "baseapplicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+              "hidemenu": 0
+            }
+          },
+          {
+            "step": 2,
+            "operation": "UPSERT_CSYSObjectField_BATCH",
+            "table": "CSYSObjectField",
+            "count": 12,
+            "data": [
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_testepreflightbid>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "testepreflightbid",
+                "nameunc": "testepreflightbid",
+                "isprimarykey": 1,
+                "datatype": "Guid",
+                "systemdatatype": 36,
+                "displaytype": "Guid",
+                "fieldorder": null,
+                "maxlength": 16,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 0,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "generated_primary_key",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_creationdate>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "Criado em",
+                "nameunc": "creationdate",
+                "isprimarykey": 0,
+                "datatype": "DateTimeOffset",
+                "systemdatatype": 43,
+                "displaytype": "DateTime",
+                "fieldorder": null,
+                "maxlength": 10,
+                "precision": 34,
+                "scale": 7,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_descendantlocked>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "descendantlocked",
+                "nameunc": "descendantlocked",
+                "isprimarykey": 0,
+                "datatype": "Boolean",
+                "systemdatatype": 104,
+                "displaytype": "Boolean",
+                "fieldorder": null,
+                "maxlength": 1,
+                "precision": 1,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_description>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "Descrição",
+                "nameunc": "description",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 2048,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_locked>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "locked",
+                "nameunc": "locked",
+                "isprimarykey": 0,
+                "datatype": "Boolean",
+                "systemdatatype": 104,
+                "displaytype": "Boolean",
+                "fieldorder": null,
+                "maxlength": 1,
+                "precision": 1,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_modificationdate>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "Modificado em",
+                "nameunc": "modificationdate",
+                "isprimarykey": 0,
+                "datatype": "DateTimeOffset",
+                "systemdatatype": 43,
+                "displaytype": "DateTime",
+                "fieldorder": null,
+                "maxlength": 10,
+                "precision": 34,
+                "scale": 7,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_name>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "Nome",
+                "nameunc": "name",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_ostate>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "ostate",
+                "nameunc": "ostate",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_state>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "state",
+                "nameunc": "state",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_status>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "status",
+                "nameunc": "status",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "base_field",
+                "source_field": null,
+                "source_type": null
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_referencia>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "Referencia",
+                "nameunc": "referencia",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "user_field",
+                "source_field": "referencia",
+                "source_type": "string"
+              },
+              {
+                "operation": "UPSERT_CSYSObjectField",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_stateteste>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "name": "Estado",
+                "nameunc": "stateteste",
+                "isprimarykey": 0,
+                "datatype": "String",
+                "systemdatatype": 231,
+                "displaytype": "String",
+                "fieldorder": null,
+                "maxlength": 255,
+                "precision": 0,
+                "scale": 0,
+                "isnullable": 1,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source": "user_field",
+                "source_field": "estado_teste",
+                "source_type": "string"
+              }
+            ]
+          },
+          {
+            "step": 3,
+            "operation": "UPSERT_CSYSObjectReference_BATCH",
+            "table": "CSYSObjectReference",
+            "count": 3,
+            "data": [
+              {
+                "operation": "UPSERT_CSYSObjectReference",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_creationuserid>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "referencedobjectid": "28495E60-D823-4BC6-AF46-2ED4A54E2A2E",
+                "name": "Criado por",
+                "nameunc": "creationuserid",
+                "isprimarykey": 0,
+                "referencedtype": "Picklist",
+                "isnullable": 1,
+                "relationtype": "Reference",
+                "constraintname": "FK_CUTestePreflightB_creationuserid_CSYSUser_userid",
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source_relation": {
+                  "type": "SYSTEM_USER",
+                  "from_table": "CUTestePreflightB",
+                  "from_field": "creationuserid",
+                  "to_table": "CSYSUser",
+                  "query": "exec sp_sys_create_ID_Relation 'CUTestePreflightB','creationuserid','CSYSUser', null",
+                  "source_relation": null
+                }
+              },
+              {
+                "operation": "UPSERT_CSYSObjectReference",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_modificationuserid>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "referencedobjectid": "28495E60-D823-4BC6-AF46-2ED4A54E2A2E",
+                "name": "Modificado por",
+                "nameunc": "modificationuserid",
+                "isprimarykey": 0,
+                "referencedtype": "Picklist",
+                "isnullable": 1,
+                "relationtype": "Reference",
+                "constraintname": "FK_CUTestePreflightB_modificationuserid_CSYSUser_userid",
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source_relation": {
+                  "type": "SYSTEM_USER",
+                  "from_table": "CUTestePreflightB",
+                  "from_field": "modificationuserid",
+                  "to_table": "CSYSUser",
+                  "query": "exec sp_sys_create_ID_Relation 'CUTestePreflightB','modificationuserid','CSYSUser', null",
+                  "source_relation": null
+                }
+              },
+              {
+                "operation": "UPSERT_CSYSObjectReference",
+                "fieldid": "<FIELD_ID:CUTestePreflightB_testepreflightaid>",
+                "objectid": "<OBJECT_ID:CUTestePreflightB>",
+                "referencedobjectid": "<OBJECT_ID:CUTestePreflightA>",
+                "name": "Teste Preflight A",
+                "nameunc": "testepreflightaid",
+                "isprimarykey": 0,
+                "referencedtype": "Picklist",
+                "isnullable": 1,
+                "relationtype": "Reference",
+                "constraintname": "FK_CUTestePreflightB_testepreflightaid_CUTestePreflightA_testepreflightaid",
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active",
+                "source_relation": {
+                  "type": "ONE_TO_MANY",
+                  "from_table": "CUTestePreflightB",
+                  "from_field": "testepreflightaid",
+                  "to_table": "CUTestePreflightA",
+                  "query": "exec sp_sys_create_ID_Relation 'CUTestePreflightB','testepreflightaid','CUTestePreflightA', null",
+                  "source_relation": {
+                    "from": "Teste Preflight A",
+                    "to": "Teste Preflight B",
+                    "type": "ONE_TO_MANY"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "step": 4,
+            "operation": "UPSERT_CSYSObjectLayout",
+            "table": "CSYSObjectLayout",
+            "data": {
+              "objectlayoutid": "<LAYOUT_ID:CUTestePreflightB>",
+              "objectid": "<OBJECT_ID:CUTestePreflightB>",
+              "name": "default layout",
+              "description": "default layout",
+              "type": "form",
+              "isdefault": 1,
+              "status": "Pub",
+              "state": "Active",
+              "ostate": "Active"
+            }
+          },
+          {
+            "step": 5,
+            "operation": "UPSERT_CSYSObjectLayoutSection",
+            "table": "CSYSObjectLayoutSection",
+            "data": {
+              "objectlayoutsectionid": "<LAYOUT_SECTION_ID:CUTestePreflightB>",
+              "objectlayoutid": "<LAYOUT_ID:CUTestePreflightB>",
+              "name": "Teste Preflight B",
+              "description": "Teste Preflight B",
+              "type": "Section",
+              "visible": 1,
+              "oderposition": 1,
+              "isreferencecontainer": 0,
+              "issubsection": 0,
+              "workingdata": "<div id=\"frontdata\">\n  <div id=\"tabstrip\" data-role=\"tabstrip\" data-animation='{\"open\":{\"effects\":\"fadeIn\"}}' >\n    <ul>\n      <li>Teste Preflight B</li>\n      <li>Administração</li>\n    </ul>\n    <div class=\"content\">\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_descendantlocked\" class=\" field \" data-bind=\"style:{color:datachange.descendantlocked_label}\"><span class=\"labelcontainer\">descendantlocked</span></label></div><div class=\"field\" ><span class=\"fieldcontainer\">descendantlocked</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_description\" class=\" field \" data-bind=\"style:{color:datachange.description_label}\"><span class=\"labelcontainer\">description</span></label></div><div class=\"field\" ><span class=\"fieldcontainer\">description</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_name\" class=\" field \" data-bind=\"style:{color:datachange.name_label}\"><span class=\"labelcontainer\">name</span></label></div><div class=\"field\" ><span class=\"fieldcontainer\">name</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_referencia\" class=\" field \" data-bind=\"style:{color:datachange.referencia_label}\"><span class=\"labelcontainer\">referencia</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">referencia</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_stateteste\" class=\" field \" data-bind=\"style:{color:datachange.stateteste_label}\"><span class=\"labelcontainer\">stateteste</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">stateteste</span></div></div>\n    </div>\n    <div class=\"content\">\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_testepreflightbid\" class=\" field required\" data-bind=\"style:{color:datachange.testepreflightbid_label}\"><span class=\"labelcontainer\">testepreflightbid</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">testepreflightbid</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_creationdate\" class=\" field \" data-bind=\"style:{color:datachange.creationdate_label}\"><span class=\"labelcontainer\">creationdate</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">creationdate</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_locked\" class=\" field \" data-bind=\"style:{color:datachange.locked_label}\"><span class=\"labelcontainer\">locked</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">locked</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_modificationdate\" class=\" field \" data-bind=\"style:{color:datachange.modificationdate_label}\"><span class=\"labelcontainer\">modificationdate</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">modificationdate</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_ostate\" class=\" field \" data-bind=\"style:{color:datachange.ostate_label}\"><span class=\"labelcontainer\">ostate</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">ostate</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_state\" class=\" field \" data-bind=\"style:{color:datachange.state_label}\"><span class=\"labelcontainer\">state</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">state</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_status\" class=\" field \" data-bind=\"style:{color:datachange.status_label}\"><span class=\"labelcontainer\">status</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">status</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_creationuserid\" class=\" field \" data-bind=\"style:{color:datachange.creationuserid_label}\"><span class=\"labelcontainer\">creationuserid</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">creationuserid</span></div></div>\n<div class=\"dfieldblock\"><div class=\"label\"><label for=\"id_modificationuserid\" class=\" field \" data-bind=\"style:{color:datachange.modificationuserid_label}\"><span class=\"labelcontainer\">modificationuserid</span></label></div><div class=\"field\" ><span class=\"fieldcontainerreadonly\">modificationuserid</span></div></div>\n    </div>\n  </div>\n</div>",
+              "layout_rule": {
+                "editable_fields": [
+                  "descendantlocked",
+                  "description",
+                  "name"
+                ],
+                "readonly_fields": [
+                  "testepreflightbid",
+                  "creationdate",
+                  "locked",
+                  "modificationdate",
+                  "ostate",
+                  "state",
+                  "status",
+                  "referencia",
+                  "stateteste",
+                  "creationuserid",
+                  "modificationuserid",
+                  "testepreflightaid"
+                ]
+              }
+            }
+          },
+          {
+            "step": 6,
+            "operation": "UPSERT_CSYSObjectLayoutPermission",
+            "table": "CSYSObjectLayoutPermission",
+            "data": {
+              "objectlayoutpermissionid": "<LAYOUT_PERMISSION_ID:CUTestePreflightB>",
+              "name": "Adm Tab. Auxiliares",
+              "objectlayoutid": "<LAYOUT_ID:CUTestePreflightB>",
+              "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+              "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+              "isnew": 1,
+              "isreadonly": null,
+              "oderposition": 10,
+              "status": "Pub",
+              "state": "Active",
+              "ostate": "Active"
+            }
+          },
+          {
+            "step": 7,
+            "operation": "UPSERT_CSYSView",
+            "table": "CSYSView",
+            "data": {
+              "viewid": "<VIEW_ID:CUTestePreflightB>",
+              "name": "Teste Preflight B",
+              "description": "Teste Preflight B",
+              "viewtype": "default",
+              "refobjectid": "<OBJECT_ID:CUTestePreflightB>",
+              "command": "{\"width\":300,\"height\":400,\"title\":\"Open View - Teste Preflight B\"}",
+              "serverdata": "<data>\n  <viewtype>select</viewtype>\n  <columns jsondisplaytype=\"list\">\n    <column><field>t01.testepreflightbid</field><alias>testepreflightbid</alias></column>\n    <column><field>t01.description</field><alias>description</alias></column>\n    <column><field>t01.name</field><alias>name</alias></column>\n  </columns>\n  <from haswhere=\"1\">\n    CUTestePreflightB t01 with(nolock)\n    where t01.state='Active'\n  </from>\n  <orderby jsondisplaytype=\"list\">\n    <field>t01.name asc</field>\n  </orderby>\n</data>",
+              "clientdata": "<data>\n  <definition>\n    <name>Teste Preflight B</name>\n    <description>Teste Preflight B</description>\n    <datasource>\n      <pageSize datatype=\"number\">100</pageSize>\n      <serverPaging datatype=\"boolean\">true</serverPaging>\n      <serverFiltering datatype=\"boolean\">true</serverFiltering>\n      <serverSorting datatype=\"boolean\">true</serverSorting>\n    </datasource>\n    <grid>\n      <rowtemplate/>\n      <altrowtemplate/>\n      <selectable>row</selectable>\n      <navigatable datatype=\"boolean\">true</navigatable>\n      <height>100%</height>\n      <resizable datatype=\"boolean\">true</resizable>\n      <filterable datatype=\"boolean\">true</filterable>\n      <sortable datatype=\"boolean\">true</sortable>\n      <pageable>\n        <refresh datatype=\"boolean\">true</refresh>\n        <pageSizes datatype=\"boolean\">true</pageSizes>\n        <buttonCount datatype=\"number\">5</buttonCount>\n      </pageable>\n      *       <columnMenu datatype=\"boolean\">true</columnMenu>\n      *       <columnMenu><componentType>tabbed</componentType></columnMenu>\n      <reorderable datatype=\"boolean\">true</reorderable>\n      <editable datatype=\"boolean\">false</editable>\n      <toolbar/>\n    </grid>\n  </definition>\n  <keyfield>testepreflightbid</keyfield>\n  <modelschema>\n    <testepreflightbid><type>string</type></testepreflightbid>\n    <name><type>string</type></name>\n    <description><type>string</type></description>\n  </modelschema>\n  <columns jsondisplaytype=\"list\">\n    <col>\n      <field>name</field>\n      <title>Nome</title>\n      <width datatype=\"number\">100</width>\n      <filterable datatype=\"boolean\">true</filterable>\n      <template>&lt;a href=\"javascript:\" onclick=\"flink(this,'${testepreflightbid}',null,null)\" &gt;${name}&lt;/a&gt;</template>\n    </col>\n    <col>\n      <field>description</field>\n      <title>Descrição</title>\n      <width datatype=\"number\">100</width>\n      <filterable datatype=\"boolean\">true</filterable>\n    </col>\n  </columns>\n</data>",
+              "compileddate": "<NOW>",
+              "autorefresh": 1,
+              "displaytype": "grid",
+              "status": "Pub",
+              "state": "Active",
+              "ostate": "Active"
+            }
+          },
+          {
+            "step": 8,
+            "operation": "UPSERT_CSYSAction_BATCH",
+            "table": "CSYSAction",
+            "count": 2,
+            "data": [
+              {
+                "actionid": "<ACTION_ID:CUTestePreflightB_Novo>",
+                "name": "Teste Preflight B - Novo",
+                "description": "Teste Preflight B - Novo",
+                "type": "object",
+                "objectaction": "new",
+                "baseobjectid": "<OBJECT_ID:CUTestePreflightB>",
+                "objectid": null,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active"
+              },
+              {
+                "actionid": "<ACTION_ID:CUTestePreflightB_Listagem>",
+                "name": "Teste Preflight B - Listagem",
+                "description": "Teste Preflight B - Listagem",
+                "type": "view",
+                "objectaction": null,
+                "baseobjectid": "7B4FF922-86F4-457B-8E4C-FF5DC82CDC18",
+                "objectid": "<VIEW_ID:CUTestePreflightB>",
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active"
+              }
+            ]
+          },
+          {
+            "step": 9,
+            "operation": "UPSERT_CSYSObjectAction_BATCH",
+            "table": "CSYSObjectAction",
+            "count": 2,
+            "data": [
+              {
+                "objectactionid": "<OBJECT_ACTION_ID:CUTestePreflightB_listagem>",
+                "name": "teste preflight b - listagem",
+                "actionid": "<ACTION_ID:CUTestePreflightB_Listagem>",
+                "objectid": "<VIEW_ID:CUTestePreflightB>",
+                "showtype": "toolbarbuttom",
+                "showhaswriteaccess": 1,
+                "hideaction": 0,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active"
+              },
+              {
+                "objectactionid": "<OBJECT_ACTION_ID:CUTestePreflightB_novo>",
+                "name": "Novo Teste Preflight B",
+                "actionid": "<ACTION_ID:CUTestePreflightB_Novo>",
+                "objectid": "7B4FF922-86F4-457B-8E4C-FF5DC82CDC18",
+                "showtype": "toolbarbuttom",
+                "showhaswriteaccess": 1,
+                "hideaction": 0,
+                "status": "Pub",
+                "state": "Active",
+                "ostate": "Active"
+              }
+            ],
+            "cleanup_rule": "Depois da geração automática, deve ficar apenas a ação 'Novo <Objeto>' associada ao objeto base 'Listagem'. Referências duplicadas/erradas devem ser removidas."
+          },
+          {
+            "step": 10,
+            "operation": "UPSERT_PERMISSIONS_AND_ROLE_PERMISSIONS",
+            "tables": [
+              "CSYSPermission",
+              "CSYSRolePermission"
+            ],
+            "data": [
+              {
+                "target": "object",
+                "permission": {
+                  "permissionid": "<PERMISSION_ID:CUTestePreflightB_object>",
+                  "name": "Tab. Auxiliares",
+                  "type": "Object",
+                  "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+                  "baseobjectid": "<OBJECT_ID:CUTestePreflightB>"
+                },
+                "role_permissions": [
+                  {
+                    "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+                    "role_name": "Adm Tab. Auxiliares",
+                    "fullpermissionmask": 63
+                  },
+                  {
+                    "roleid": "0A1958E3-5D3A-44DF-B9D4-3EDBD680BB94",
+                    "role_name": "Designer",
+                    "fullpermissionmask": 8192
+                  }
+                ]
+              },
+              {
+                "target": "view",
+                "permission": {
+                  "permissionid": "<PERMISSION_ID:CUTestePreflightB_view>",
+                  "name": "Tab. Auxiliares",
+                  "type": "View",
+                  "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+                  "baseobjectid": "<VIEW_ID:CUTestePreflightB>"
+                },
+                "role_permissions": [
+                  {
+                    "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+                    "role_name": "Adm Tab. Auxiliares",
+                    "fullpermissionmask": 1
+                  },
+                  {
+                    "roleid": "0A1958E3-5D3A-44DF-B9D4-3EDBD680BB94",
+                    "role_name": "Designer",
+                    "fullpermissionmask": 8192
+                  }
+                ]
+              },
+              {
+                "target": "action_new",
+                "permission": {
+                  "permissionid": "<PERMISSION_ID:CUTestePreflightB_action_new>",
+                  "name": "Tab. Auxiliares",
+                  "type": "Action",
+                  "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+                  "baseobjectid": "<ACTION_ID:CUTestePreflightB_Novo>"
+                },
+                "role_permissions": [
+                  {
+                    "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+                    "role_name": "Adm Tab. Auxiliares",
+                    "fullpermissionmask": 1
+                  }
+                ]
+              },
+              {
+                "target": "action_view",
+                "permission": {
+                  "permissionid": "<PERMISSION_ID:CUTestePreflightB_action_view>",
+                  "name": "Tab. Auxiliares",
+                  "type": "Action",
+                  "applicationid": "E5F41C8F-5DF0-4955-BCBC-4FD21DD10469",
+                  "baseobjectid": "<ACTION_ID:CUTestePreflightB_Listagem>"
+                },
+                "role_permissions": [
+                  {
+                    "roleid": "8A85CE1D-A80B-479A-B417-D66C9BD48467",
+                    "role_name": "Adm Tab. Auxiliares",
+                    "fullpermissionmask": 1
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "execution_order": [
+      "1. Criar/validar tabelas físicas no SQL Server com o Database Agent.",
+      "2. Criar CSYSObject.",
+      "3. Criar CSYSObjectField.",
+      "4. Criar CSYSObjectReference.",
+      "5. Criar CSYSObjectLayout.",
+      "6. Criar/atualizar CSYSObjectLayoutSection.workingdata.",
+      "7. Criar CSYSObjectLayoutPermission.",
+      "8. Criar CSYSView com serverdata/clientdata.",
+      "9. Criar CSYSAction.",
+      "10. Criar CSYSObjectAction.",
+      "11. Criar CSYSPermission.",
+      "12. Criar CSYSRolePermission.",
+      "13. Validar com framework_metadata_introspector.py."
+    ]
+  }
+}
