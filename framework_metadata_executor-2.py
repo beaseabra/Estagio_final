@@ -33,8 +33,7 @@ import os
 import sys
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from framework_metadata_preflight import (
     connect_pymssql,
@@ -277,6 +276,9 @@ def insert_csys_object(cursor, data: Dict[str, Any]) -> None:
             "description": data.get("description"),
 
             # Estado/base
+            "status": data.get("status", "Pub"),
+            "state": data.get("state", "Active"),
+            "ostate": data.get("ostate", "Active"),
             "issystem": data.get("issystem", 0),
             "ishiden": data.get("ishiden", 0),
             "nameunc": data["nameunc"],
@@ -337,6 +339,9 @@ def insert_csys_object_field(cursor, field: Dict[str, Any]) -> None:
             "objectid": field["objectid"],
             "name": field["name"],
             "description": field.get("description"),
+            "status": field.get("status", "Pub"),
+            "state": field.get("state", "Active"),
+            "ostate": field.get("ostate", "Active"),
             "nameunc": field["nameunc"],
             "isprimarykey": field.get("isprimarykey", 0),
             "datatype": field.get("datatype"),
@@ -362,6 +367,9 @@ def insert_csys_object_reference(cursor, reference: Dict[str, Any]) -> None:
             "referencedobjectid": reference.get("referencedobjectid"),
             "name": reference["name"],
             "description": reference.get("description"),
+            "status": reference.get("status", "Pub"),
+            "state": reference.get("state", "Active"),
+            "ostate": reference.get("ostate", "Active"),
             "nameunc": reference["nameunc"],
             "isprimarykey": reference.get("isprimarykey", 0),
             "referencedtype": reference.get("referencedtype", "Picklist"),
@@ -382,6 +390,9 @@ def insert_csys_object_layout(cursor, data: Dict[str, Any]) -> None:
             "objectid": data["objectid"],
             "name": data.get("name", "default layout"),
             "description": data.get("description"),
+            "status": data.get("status", "Pub"),
+            "state": data.get("state", "Active"),
+            "ostate": data.get("ostate", "Active"),
             "isdefault": data.get("isdefault", 1),
             "isprefetch": data.get("isprefetch"),
             "type": data.get("type", "form"),
@@ -405,6 +416,9 @@ def insert_csys_object_layout_section(cursor, data: Dict[str, Any]) -> None:
             "objectlayoutid": data["objectlayoutid"],
             "name": data["name"],
             "description": data.get("description"),
+            "status": data.get("status", "Pub"),
+            "state": data.get("state", "Active"),
+            "ostate": data.get("ostate", "Active"),
             "isreferencecontainer": data.get("isreferencecontainer", 0),
             "issubsection": data.get("issubsection", 0),
             "type": data.get("type", "Section"),
@@ -426,6 +440,9 @@ def insert_csys_object_layout_permission(cursor, data: Dict[str, Any]) -> None:
             "objectlayoutpermissionid": data["objectlayoutpermissionid"],
             "name": data["name"],
             "description": data.get("description"),
+            "status": data.get("status", "Pub"),
+            "state": data.get("state", "Active"),
+            "ostate": data.get("ostate", "Active"),
             "objectlayoutid": data["objectlayoutid"],
             "roleid": data["roleid"],
             "applicationid": data["applicationid"],
@@ -450,6 +467,9 @@ def insert_csys_view(cursor, data: Dict[str, Any]) -> None:
             "viewid": data["viewid"],
             "name": data["name"],
             "description": data.get("description"),
+            "status": data.get("status", "Pub"),
+            "state": data.get("state", "Active"),
+            "ostate": data.get("ostate", "Active"),
             "viewtype": data.get("viewtype", "default"),
             "refobjectid": data["refobjectid"],
             "command": data.get("command"),
@@ -471,6 +491,9 @@ def insert_csys_action(cursor, action: Dict[str, Any]) -> None:
             "actionid": action["actionid"],
             "name": action["name"],
             "description": action.get("description"),
+            "status": action.get("status", "Pub"),
+            "state": action.get("state", "Active"),
+            "ostate": action.get("ostate", "Active"),
             "type": action.get("type"),
             "objectaction": action.get("objectaction"),
             "baseobjectid": action.get("baseobjectid"),
@@ -488,22 +511,58 @@ def insert_csys_action(cursor, action: Dict[str, Any]) -> None:
 
 
 def insert_csys_object_action(cursor, object_action: Dict[str, Any]) -> None:
+    """
+    Insere CSYSObjectAction.
+
+    Correção importante:
+    - O campo objectkeyid tem de ser preservado.
+      Exemplos observados:
+        Novo <Objeto>:
+            objectid    = objeto base Listagem / CSYSView
+            objectkeyid = viewid da listagem concreta
+
+        <objeto>-listagem:
+            objectid    = objeto base Layout / CSYSObjectLayout
+            objectkeyid = objectlayoutid do layout concreto
+
+    - Não forçamos objectid para NULL no executor.
+      O planner é que deve decidir objectid e objectkeyid.
+    """
     row = _base_status_fields(
         {
             "objectactionid": object_action["objectactionid"],
             "name": object_action["name"],
             "description": object_action.get("description"),
+
+            "status": object_action.get("status", "Pub"),
+            "state": object_action.get("state", "Active"),
+
+            # No padrão funcional observado, CSYSObjectAction.ostate pode ficar NULL.
+            # Por isso preservamos explicitamente None quando o planner envia None.
+            "ostate": object_action.get("ostate"),
+
             "actionid": object_action["actionid"],
-            "objectid": object_action["objectid"],
+            "objectid": object_action.get("objectid"),
+            "objectkeyid": object_action.get("objectkeyid"),
+
             "objectworkflowid": object_action.get("objectworkflowid"),
             "objectworkflowstateid": object_action.get("objectworkflowstateid"),
+
+            "menuorder": object_action.get("menuorder"),
+            "menupath": object_action.get("menupath"),
+            "filter": object_action.get("filter"),
+            "paramoptions": object_action.get("paramoptions"),
+            "parameters": object_action.get("parameters"),
+
             "showtype": object_action.get("showtype", "toolbarbuttom"),
+            "iconresourceunc": object_action.get("iconresourceunc"),
             "showisnew": object_action.get("showisnew"),
             "showhasreadaccess": object_action.get("showhasreadaccess"),
             "showhaswriteaccess": object_action.get("showhaswriteaccess", 1),
             "showalways": object_action.get("showalways"),
-            "hideaction": object_action.get("hideaction", 0),
+            "hideaction": object_action.get("hideaction"),
             "musthaverecord": object_action.get("musthaverecord"),
+            "keyname": object_action.get("keyname"),
             "forcerefresh": object_action.get("forcerefresh"),
             "parentclose": object_action.get("parentclose"),
             "savefirst": object_action.get("savefirst"),
@@ -519,6 +578,9 @@ def insert_csys_permission(cursor, permission: Dict[str, Any]) -> None:
             "permissionid": permission["permissionid"],
             "name": permission["name"],
             "description": permission.get("description"),
+            "status": permission.get("status", "Pub"),
+            "state": permission.get("state", "Active"),
+            "ostate": permission.get("ostate", "Active"),
             "type": permission.get("type"),
             "applicationid": permission.get("applicationid"),
             "baseobjectid": permission.get("baseobjectid"),
@@ -535,13 +597,15 @@ def insert_csys_role_permission(
     role_permission: Dict[str, Any],
 ) -> None:
     role_name = role_permission.get("role_name") or "Role"
-    permission_name = permission.get("name") or "Permissão"
 
     row = _base_status_fields(
         {
             "rolepermissionid": _new_guid(),
             "name": role_name,
             "description": role_permission.get("description"),
+            "status": role_permission.get("status", "Pub"),
+            "state": role_permission.get("state", "Active"),
+            "ostate": role_permission.get("ostate", "Active"),
             "roleid": role_permission["roleid"],
             "permissionid": permission["permissionid"],
             "workflowid": role_permission.get("workflowid"),
@@ -649,46 +713,19 @@ def _execute_object_plan(
         log(op["step"], op["operation"], "inserted", f"{len(op.get('data') or [])} actions")
 
     # 9. CSYSObjectAction
+    # O executor já não reescreve objectid.
+    # A partir de agora, o planner tem de enviar:
+    # - objectid correto
+    # - objectkeyid correto
+    # - flags show/save/refresh corretas
     op = _extract_operation(resolved_plan, "UPSERT_CSYSObjectAction_BATCH")
     if op:
         object_actions = op.get("data") or []
 
-        # Correção importante:
-        # CSYSObjectAction.objectid tem FK para CSYSObject.objectid.
-        # No padrão manual:
-        # - ação "Novo <Objeto>" fica ligada ao objeto base "Listagem";
-        # - ação "<objeto> - listagem" fica com objectid NULL.
-        # Se um plano antigo ainda enviar VIEW_ID aqui, convertemos para NULL.
-        planned_ids = resolved_plan.get("planned_ids") or {}
-        current_view_id = planned_ids.get("viewid")
-
-        fixed_object_actions = []
         for object_action in object_actions:
-            fixed = dict(object_action)
+            insert_csys_object_action(cursor, object_action)
 
-            if (
-                current_view_id
-                and fixed.get("objectid") is not None
-                and str(fixed.get("objectid")).lower() == str(current_view_id).lower()
-            ):
-                fixed["objectid"] = None
-                fixed["executor_fix"] = (
-                    "objectid corrigido de CSYSView.viewid para NULL"
-                )
-
-            fixed_object_actions.append(fixed)
-
-        for object_action in fixed_object_actions:
-            data_to_insert = dict(object_action)
-            data_to_insert.pop("executor_fix", None)
-            insert_csys_object_action(cursor, data_to_insert)
-
-        fix_count = sum(1 for item in fixed_object_actions if item.get("executor_fix"))
-        detail = f"{len(fixed_object_actions)} object actions"
-        if fix_count:
-            detail += f" ({fix_count} objectid corrigido)"
-
-        log(op["step"], op["operation"], "inserted", detail)
+        log(op["step"], op["operation"], "inserted", f"{len(object_actions)} object actions")
 
     # 10. Permissions
     op = _extract_operation(resolved_plan, "UPSERT_PERMISSIONS_AND_ROLE_PERMISSIONS")
@@ -727,7 +764,7 @@ def execute_framework_metadata(
     Executa ou simula a criação da metadata da framework.
     """
     preflight = run_framework_metadata_preflight(blueprint)
-    plan = preflight.get("plan")
+    plan = preflight.get("plan") or {}
 
     env_enabled = is_framework_execution_enabled()
     confirmation_ok = confirm_phrase == CONFIRM_PHRASE
