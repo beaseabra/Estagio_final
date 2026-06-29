@@ -14,7 +14,6 @@ def handle_chat(prompt: str):
     
     data_atual = _get_pt_date()
     
-    # Prompt focado em ser natural, inteligente e NÃO robótico
     system_prompt = f"""
     Tu és o AiBizCore, um assistente virtual inteligente, direto e natural, especializado em Arquitetura de Software.
     
