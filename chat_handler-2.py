@@ -38,6 +38,6 @@ def handle_chat(prompt: str):
         res = requests.post(OLLAMA_URL, json=payload, timeout=30)
         res.raise_for_status()
         resposta = res.json().get("response", "").strip()
-        return f"🤖 AiBizCore: {resposta}"
+        return f" AiBizCore: {resposta}"
     except Exception as e:
-        return f"🤖 AiBizCore: Erro na conversa: {e}"
+        return f" AiBizCore: Erro na conversa: {e}"
