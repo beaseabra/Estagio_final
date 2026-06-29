@@ -1,7 +1,4 @@
 # ===== semantic_rules.py =====
-# FIX CRÍTICO: apply_semantic_rules não tinha `return schema` no fim.
-# Python devolvia None implicitamente → create_system_handler ficava com schema = None
-# → validate_and_fix(None) → 'NoneType' object has no attribute 'get'
 
 import re
 
@@ -43,21 +40,18 @@ def fix_field_name(name: str):
 
 
 def apply_semantic_rules(schema: dict):
-    # FIX: protege contra schema=None (que pode vir de um generator que falhou)
     if not schema or not isinstance(schema, dict):
         print("[semantic_rules] schema inválido recebido — devolvido vazio seguro")
         return {"objects": [], "relations": [], "workspaces": [], "actions": []}
 
     object_rename_map = {}
 
-    # OBJECTS — renomear
     for obj in schema.get("objects", []):
         old_name = obj.get("name")
         new_name = fix_object_name(old_name)
         object_rename_map[old_name] = new_name
         obj["name"] = new_name
 
-    # FIELDS
     for obj in schema.get("objects", []):
         for field in obj.get("fields", []):
             fname = field.get("name")
@@ -71,18 +65,16 @@ def apply_semantic_rules(schema: dict):
                 fixed_field = safe_replace(fixed_field, old_obj.lower(), new_obj.lower())
             field["name"] = fixed_field.lower()
 
-    # RELATIONS
+
     for rel in schema.get("relations", []):
         rel["from"] = object_rename_map.get(rel.get("from"), rel.get("from"))
         rel["to"]   = object_rename_map.get(rel.get("to"),   rel.get("to"))
 
-    # WORKSPACES
     for ws in schema.get("workspaces", []):
         ws["objects"] = [object_rename_map.get(o, o) for o in ws.get("objects", [])]
         if "primary_entity" in ws:
             ws["primary_entity"] = object_rename_map.get(ws["primary_entity"], ws["primary_entity"])
 
-    # ACTIONS
     for action in schema.get("actions", []):
         for key in ["target", "from", "to", "object"]:
             if key in action:
@@ -93,4 +85,4 @@ def apply_semantic_rules(schema: dict):
             ]
 
     print("[semantic_rules] regras aplicadas")
-    return schema  # ← FIX: este return faltava — causava o NoneType
+    return schema  
