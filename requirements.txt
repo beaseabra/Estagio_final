@@ -1,0 +1,26 @@
+# AiBizCore Intelligence - Python backend dependencies
+# Recommended Python version: 3.10+
+
+# API backend
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.0.0
+
+# HTTP calls to Ollama/local services
+requests>=2.31.0
+
+# Environment variables and configuration
+python-dotenv>=1.0.0
+
+# SQL Server integration
+# pymssql is used by the current SQL/framework execution agents.
+pymssql>=2.3.0
+
+# Optional alternative SQL Server driver, used by older/alternative execution agents.
+pyodbc>=5.0.0
+
+# Utility dependency used by some validation/cache workflows.
+numpy>=1.26.0
+
+# Testing / development helpers
+pytest>=8.0.0
