@@ -1,6 +1,4 @@
 # ===== framework_metadata_preflight_routes.py =====
-# Rotas FastAPI para preflight da metadata da framework.
-# Modo seguro: apenas SELECT, sem escrita na base de dados.
 
 from __future__ import annotations
 
