@@ -97,13 +97,11 @@ def verificar_cache(prompt: str):
             if set(entities_old) != set(entities_new): continue
             if emb_old.shape != emb_new.shape: continue
 
-            # Cálculo Matemático (IA)
             score = 1 - cosine(emb_new, emb_old)
 
             if score >= CACHE_SIMILARITY_THRESHOLD:
                 lex_score = _lexical_similarity(prompt, old_prompt)
                 
-                # Se não for uma correspondência exata e a sobreposição de palavras for fraca, rejeita.
                 if prompt.strip().lower() != old_prompt.strip().lower() and lex_score < 0.75:
                     continue
 
