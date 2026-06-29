@@ -167,8 +167,6 @@ def _infer_relations(plan: dict, entity_names: list = None):
                 seen.add((main_entity, e))
 
     # 3. FALLBACK CONTROLADO
-    # Só cria uma cadeia mínima se não houver relações nenhumas.
-    # Isto evita inventar ligações artificiais em excesso.
     if not relations and len(entity_list) >= 2:
         for i in range(len(entity_list) - 1):
             a = entity_list[i]
