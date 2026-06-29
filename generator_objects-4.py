@@ -1,3 +1,4 @@
+# ===== generator_objects.py =====
 import time
 
 from planner import generate_plan
@@ -5,9 +6,9 @@ from planner import generate_plan
 from generator_objects import generate_objects
 from generator_relations import generate_relations
 from generator_workspaces import generate_workspaces
-from generator_actions import generate_actions  # 🔥 Importado o gerador de ações
+from generator_actions import generate_actions  
 
-# Alterado de aggregate_schema para aggregate_blueprint para suportar as ações reais
+
 from aggregator import aggregate_blueprint
 from validator import validate_and_fix
 from evaluator import evaluate_schema
@@ -25,7 +26,7 @@ from canonical_schema import (
 from storage import save_schema
 
 
-MAX_RETRIES = 1  # 🔥 reduzir carga
+MAX_RETRIES = 1 
 
 
 def log(message: str):
@@ -91,7 +92,7 @@ def handle_create_system(prompt: str):
                 continue
 
             # =========================
-            # GENERATORS (SEQUENCIAL)
+            # GENERATORS 
             # =========================
 
             try:
@@ -112,7 +113,7 @@ def handle_create_system(prompt: str):
                 log(f"[generator_workspaces] erro: {e}")
                 workspaces = {}
 
-            # 🔥 Chamada inteligente ao gerador de ações reais do LLM
+            
             try:
                 actions = generate_actions(plan)
             except Exception as e:
@@ -123,11 +124,10 @@ def handle_create_system(prompt: str):
             # AGGREGATOR
             # =========================
 
-            # Agora passamos os 4 elementos reais gerados pelo ecossistema de LLMs
             schema = aggregate_blueprint(
                 objects,
                 relations,
-                actions,  # 🔥 Injetadas as ações dinâmicas aqui
+                actions,  
                 workspaces
             )
 
