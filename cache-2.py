@@ -53,7 +53,6 @@ def _load():
     except:
         return []
 
-# CORREÇÃO FASE 1: Gravação atómica para evitar corrupção de dados
 def _save(data):
     tmp = CACHE_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -68,9 +67,6 @@ def _schema_contains_entities(schema: dict, entities: list):
             return False
     return True
 
-# ==========================================
-# NOVA VERIFICAÇÃO LEXICAL (Anti-Falsos HITs)
-# ==========================================
 def _lexical_similarity(prompt1: str, prompt2: str) -> float:
     words1 = set(prompt1.lower().split())
     words2 = set(prompt2.lower().split())
@@ -105,10 +101,6 @@ def verificar_cache(prompt: str):
             score = 1 - cosine(emb_new, emb_old)
 
             if score >= CACHE_SIMILARITY_THRESHOLD:
-                # ==========================================
-                # DUPLA VALIDAÇÃO AQUI
-                # Bloqueia se a IA achar parecido mas as palavras forem diferentes!
-                # ==========================================
                 lex_score = _lexical_similarity(prompt, old_prompt)
                 
                 # Se não for uma correspondência exata e a sobreposição de palavras for fraca, rejeita.
