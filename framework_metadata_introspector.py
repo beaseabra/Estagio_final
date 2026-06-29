@@ -1,18 +1,4 @@
 # ===== framework_metadata_introspector.py =====
-# AiBizCore — Introspector de metadata da framework
-#
-# Objetivo:
-# - Ler, em modo só-leitura, tudo o que a framework criou para um objeto lógico.
-# - Transformar um objeto manualmente configurado, como "Teste Alpha", num JSON técnico.
-# - Não executa INSERT/UPDATE/DELETE. Só faz SELECT.
-#
-# Uso direto:
-#   python3 framework_metadata_introspector.py "Teste Alpha"
-#
-# Uso por import:
-#   from framework_metadata_introspector import introspect_framework_object
-#   result = introspect_framework_object(object_name="Teste Alpha")
-
 from __future__ import annotations
 
 import json
@@ -75,10 +61,6 @@ def _clean_env(name: str, default: str = "") -> str:
 
 
 def get_connection_parts() -> Tuple[str, int, str, str, str]:
-    """
-    Devolve os campos necessários para pymssql.connect().
-    Usa o mesmo .env do agente SQL Server já existente.
-    """
     load_local_env(".env")
 
     server = _clean_env("SQLSERVER_SERVER")
@@ -110,10 +92,6 @@ def get_connection_parts() -> Tuple[str, int, str, str, str]:
 
 
 def connect_pymssql():
-    """
-    Abre ligação pymssql em modo normal.
-    Este ficheiro só executa SELECTs.
-    """
     import pymssql
 
     server, port, database, username, password = get_connection_parts()
@@ -143,8 +121,6 @@ def _json_safe(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
 
-    # pymssql pode devolver UUID como objeto específico ou como string.
-    # Para garantir JSON limpo, convertemos desconhecidos simples para str.
     if isinstance(value, (str, int, float, bool)):
         return value
 
@@ -629,8 +605,6 @@ def fetch_actions_and_object_actions(
         conditions.append(f"oa.objectid IN {context_clause}")
         params.extend(context_params)
 
-    # Fallback textual, mas ainda restrito ao nome do objeto.
-    # Evita apanhar todas as ações genéricas do objeto base "Listagem".
     conditions.append("(oa.name LIKE %s OR a.name LIKE %s)")
     params.extend([f"%{object_name}%", f"%{object_name}%"])
 
