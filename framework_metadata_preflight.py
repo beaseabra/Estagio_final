@@ -1,28 +1,4 @@
 # ===== framework_metadata_preflight.py =====
-# AiBizCore — Framework Metadata Preflight
-#
-# Objetivo:
-# - Validar se o plano da framework pode ser executado com segurança.
-# - Confirmar que a tabela física e a primary key reais existem no SQL Server.
-# - Confirmar que a metadata da framework ainda não existe, para evitar duplicados.
-#
-# Segurança:
-# - Este ficheiro NÃO faz INSERT, UPDATE ou DELETE.
-# - Só faz SELECT.
-# - O resultado é um relatório de bloqueios/avisos.
-#
-# Uso:
-#   python3 framework_metadata_preflight.py blueprint.json
-#
-# Requisitos:
-# - pymssql instalado.
-# - .env com SQLSERVER_SERVER, SQLSERVER_PORT, SQLSERVER_DATABASE,
-#   SQLSERVER_USERNAME, SQLSERVER_PASSWORD.
-#
-# Regra crítica:
-# - CSYSObject.nameunc tem de ser exatamente o nome da tabela física.
-# - CSYSObject.pkfieldname tem de ser exatamente o nome da primary key física.
-# - CSYSObjectField.nameunc / CSYSObjectReference.nameunc têm de bater com colunas reais.
 
 from __future__ import annotations
 
