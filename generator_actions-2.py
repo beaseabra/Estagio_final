@@ -1,9 +1,4 @@
 # ===== generator_actions.py =====
-# Versão estável e determinística.
-# Não depende do LLM para evitar ações repetitivas ou incoerentes.
-# Gera:
-# - CRUD por entidade principal
-# - ações de domínio quando reconhece loja online, hospital, etc.
 
 CRUD_TEMPLATE = ["Criar", "Atualizar", "Arquivar", "Listar", "Detalhe"]
 
