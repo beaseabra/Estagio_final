@@ -9,7 +9,6 @@ def handle_create_workspace(prompt: str) -> dict:
     print(f"[create_workspace] A iniciar criação para: '{prompt}'...")
     start = time.time()
 
-    # System Prompt corrigido com a chave 'primary_entity' explícita nas regras e no exemplo
     system_prompt = """
     You are an AI designing a software architecture wrapper.
     You must output a strictly valid JSON structure with three root keys: "objects", "workspaces", and "actions".
@@ -45,7 +44,6 @@ def handle_create_workspace(prompt: str) -> dict:
         print(f"[create_workspace] Resposta bruta da IA:\n{raw_text}")
         result = json.loads(raw_text)
         
-        # Forçar a extração correta de todos os componentes
         final_schema = {
             "objects": result.get("objects", []),
             "workspaces": result.get("workspaces", []),
