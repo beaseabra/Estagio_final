@@ -333,8 +333,6 @@ def validate_physical_table(
             f"Esperado: {primary_key}; encontrado: {pk_columns or 'nenhuma'}"
         )
 
-    # Só bloquear por colunas em falta se a tabela existir.
-    # Se a tabela ainda não existe, a mensagem principal já é suficiente.
     if columns and missing_columns:
         blocking_issues.append(
             f"Colunas planeadas em falta na tabela física {table_name}: {', '.join(missing_columns)}"
@@ -463,8 +461,7 @@ def build_conflict_messages(
         issues.append(
             f"CSYSObject já existe para a tabela {table_name}. objectid(s): {ids}"
         )
-
-    # Se existir pelo mesmo nome mas apontar para outra tabela, também é conflito.
+        
     for row in existing["objects_by_name"]:
         if str(row.get("nameunc") or "").lower() != table_name.lower():
             issues.append(
@@ -506,10 +503,6 @@ def run_framework_metadata_preflight(blueprint: Dict[str, Any]) -> Dict[str, Any
     warnings: List[str] = []
     object_checks: List[Dict[str, Any]] = []
 
-    # Warnings vindos do sql_server_schema_adapter.
-    # Importante: se um campo pedido pelo utilizador foi ignorado por colisão
-    # com campos fixos/PK, tratamos como bloqueio para evitar criar um objeto
-    # incompleto sem o utilizador reparar.
     adapter_warnings = (
         plan.get("converted_sqlserver_summary", {}).get("warnings")
         or []
@@ -600,7 +593,6 @@ def run_framework_metadata_preflight(blueprint: Dict[str, Any]) -> Dict[str, Any
                 }
             )
 
-        # Remover duplicados preservando ordem.
         blocking_issues = list(dict.fromkeys(blocking_issues))
         warnings = list(dict.fromkeys(warnings))
 
