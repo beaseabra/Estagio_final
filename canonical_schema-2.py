@@ -100,7 +100,7 @@ def apply_canonical_schema(schema: dict):
                     continue
 
             # =========================
-            # FOREIGN KEY FIX (🔥 CORRIGIDO)
+            # FOREIGN KEY 
             # =========================
 
             if field_name.startswith("ref_"):
@@ -110,7 +110,7 @@ def apply_canonical_schema(schema: dict):
 
                 for token, real_name in object_names.items():
 
-                    # 🔥 match mais rigoroso
+                
                     if fk_target == token or fk_target.endswith(token):
 
                         canonical_name = canonical_fk_name(real_name)
@@ -118,7 +118,7 @@ def apply_canonical_schema(schema: dict):
                         if canonical_name not in seen:
                             new_fields.append({
                                 "name": canonical_name,
-                                "type": "integer"  # 🔥 garantir tipo
+                                "type": "integer"  
                             })
                             seen.add(canonical_name)
 
