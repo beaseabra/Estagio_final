@@ -1,6 +1,6 @@
 # ===== config.py =====
 
-MODEL_TIER = "3b"   # muda para "8b" depois de: ollama pull llama3.1:8b-instruct-q4_K_M
+MODEL_TIER = "3b"   
 
 _MODELS_3B = {
     "router":               "llama3.2:3b",
@@ -26,11 +26,6 @@ _MODELS_8B = {
 
 MODELS = _MODELS_8B if MODEL_TIER == "8b" else _MODELS_3B
 
-# =========================
-# ENDPOINTS
-# Usamos /api/generate (não /api/chat) — formato mais simples e compatível
-# com todos os modelos Ollama sem necessidade de template de chat.
-# =========================
 OLLAMA_URL    = "http://localhost:11434/api/generate"
 EMBEDDING_URL = "http://localhost:11434/api/embed"
 
