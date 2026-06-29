@@ -1,11 +1,4 @@
 # ===== db_execution_routes.py =====
-# AiBizCore — Rotas para plano, teste de ligação e execução SQL Server.
-#
-# Rotas:
-# - POST /api/db-plan
-# - GET  /api/db-config-status
-# - POST /api/db-test-connection
-# - POST /api/db-execute
 
 from __future__ import annotations
 
@@ -41,17 +34,10 @@ class DBExecutionRequest(BaseModel):
     execute: bool = False
     confirm_phrase: Optional[str] = None
 
-    # Mantido só para testes manuais. Recomendação: usar .env.
     connection_string: Optional[str] = None
 
 
 class DBConnectionTestRequest(BaseModel):
-    """
-    Teste de ligação.
-    Em uso normal, não precisas de enviar nada no body.
-    O backend lê do .env.
-    """
-
     connection_string: Optional[str] = None
 
 
