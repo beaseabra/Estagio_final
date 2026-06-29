@@ -1,11 +1,4 @@
 # ===== db_preview_routes.py =====
-# Rotas isoladas para gerar preview de base de dados SQL Server.
-# Não executa SQL. Não altera o schema atual. Não mexe no pipeline do chat.
-#
-# Requer:
-#   - sql_server_schema_adapter.py na raiz do projeto
-#   - em api.py: from db_preview_routes import router as db_preview_router
-#   - em api.py: app.include_router(db_preview_router)
 
 from __future__ import annotations
 
@@ -59,7 +52,6 @@ def _extract_schema(payload: DBPreviewRequest) -> Dict[str, Any]:
             ),
         )
 
-    # Se vier embrulhado no formato de resposta do AiBizCore.
     if "schema" in schema and isinstance(schema.get("schema"), dict):
         schema = schema["schema"]
 
@@ -113,8 +105,4 @@ def preview_database_schema(payload: DBPreviewRequest) -> Dict[str, Any]:
 
 @router.post("/db_preview")
 def preview_database_schema_alias(payload: DBPreviewRequest) -> Dict[str, Any]:
-    """
-    Alias da rota /api/db-preview.
-    Útil se preferires underscore no frontend.
-    """
     return preview_database_schema(payload)
