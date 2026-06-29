@@ -1,18 +1,4 @@
 # ===== router.py =====
-# Router de intenções para o pipeline AiBizCore.
-#
-# Decide se o pedido é:
-# - CREATE_SYSTEM
-# - CREATE_OBJECT      [mantido por compatibilidade, mas já não usado para "cria objeto"]
-# - CREATE_WORKSPACE   [mantido por compatibilidade, mas preferimos UPDATE_SCHEMA]
-# - UPDATE_SCHEMA
-# - CHAT
-#
-# Correção principal:
-# - Pedidos como "cria um objeto X com campo ..." passam agora por UPDATE_SCHEMA,
-#   mesmo quando ainda não existe schema ativo.
-# - Isto evita a rota CREATE_OBJECT antiga, que podia perder campos com underscores.
-
 from __future__ import annotations
 
 import re
@@ -21,7 +7,6 @@ from typing import Dict, Any
 from models import parse_blueprint
 
 
-# Palavras-chave que indicam alteração/criação estrutural
 _UPDATE_KEYWORDS = {
     "adiciona", "adicionar",
     "acrescenta", "acrescentar",
@@ -50,7 +35,6 @@ _UPDATE_KEYWORDS = {
 }
 
 
-# Pedidos claramente de sistema completo
 _SYSTEM_PATTERNS = [
     r"\bcria\s+um\s+sistema\b",
     r"\bcria\s+o\s+sistema\b",
@@ -64,9 +48,6 @@ _SYSTEM_PATTERNS = [
 ]
 
 
-# Pedidos de objeto.
-# Estes devem ir para UPDATE_SCHEMA, mesmo sem schema ativo.
-# O update_schema_handler já sabe criar objetos a partir de schema vazio.
 _OBJECT_PATTERNS = [
     r"\bcria\s+um\s+objeto\b",
     r"\bcria\s+uma\s+tabela\b",
@@ -80,8 +61,6 @@ _OBJECT_PATTERNS = [
 ]
 
 
-# Pedidos de workspace.
-# Também vão para UPDATE_SCHEMA para manter um fluxo único de edição.
 _WORKSPACE_PATTERNS = [
     r"\bcria\s+um\s+workspace\b",
     r"\bcria\s+o\s+workspace\b",
@@ -94,7 +73,6 @@ _WORKSPACE_PATTERNS = [
 ]
 
 
-# Pedidos de relação.
 _RELATION_PATTERNS = [
     r"\bcria\s+(?:uma\s+)?rela[cç][aã]o\b",
     r"\bcriar\s+(?:uma\s+)?rela[cç][aã]o\b",
@@ -105,7 +83,6 @@ _RELATION_PATTERNS = [
 ]
 
 
-# Pedidos de conversa/explicação, não de alteração técnica
 _CHAT_PATTERNS = [
     r"\bo\s+que\s+é\b",
     r"\bo\s+que\s+significa\b",
@@ -153,56 +130,31 @@ def classify_prompt(prompt: str, current_schema: Dict[str, Any]) -> str:
     print(f"[router] prompt limpo: '{prompt_clean}'")
     print(f"[router] schema ativo: {'Sim' if has_active_schema else 'Não'}")
 
-    # =========================
-    # 1. Pedido explícito de sistema completo
-    # =========================
-    # Se o utilizador pedir claramente um sistema completo,
-    # usamos CREATE_SYSTEM.
+ 
     if _matches_any(prompt_lower, _SYSTEM_PATTERNS):
         return "CREATE_SYSTEM"
 
-    # =========================
-    # 2. Pedidos de objeto vão SEMPRE para UPDATE_SCHEMA
-    # =========================
-    # Corrige o erro em que o primeiro objeto ia para CREATE_OBJECT
-    # e perdia campos como codigo_botao, valor_botao, etc.
     if _matches_any(prompt_lower, _OBJECT_PATTERNS):
         return "UPDATE_SCHEMA"
 
-    # =========================
-    # 3. Relações vão SEMPRE para UPDATE_SCHEMA
-    # =========================
+
     if _matches_any(prompt_lower, _RELATION_PATTERNS):
         return "UPDATE_SCHEMA"
 
-    # =========================
-    # 4. Workspaces vão para UPDATE_SCHEMA
-    # =========================
     if _matches_any(prompt_lower, _WORKSPACE_PATTERNS):
         return "UPDATE_SCHEMA"
 
-    # =========================
-    # 5. Se há schema ativo, quase tudo estrutural é UPDATE_SCHEMA
-    # =========================
+
     if has_active_schema:
         if any(kw in prompt_lower for kw in _UPDATE_KEYWORDS):
             return "UPDATE_SCHEMA"
 
-        # Com schema ativo, por defeito interpretamos como continuação/edição.
         return "UPDATE_SCHEMA"
 
-    # =========================
-    # 6. Conversa genérica
-    # =========================
     if _matches_any(prompt_lower, _CHAT_PATTERNS):
         return "CHAT"
 
-    # =========================
-    # 7. Fallback
-    # =========================
-    # Se não sabemos, assumimos sistema completo porque é a rota principal.
     return "CREATE_SYSTEM"
 
 
-# Alias que main.py importa como `from router import classify`
 classify = classify_prompt
