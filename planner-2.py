@@ -116,7 +116,7 @@ def generate_plan(prompt: str, feedback: dict = None) -> dict:
         "options": {
             **OPTIONS,
             "temperature": 0.3,
-            "num_predict": 600  # 🔥 reduzido (ANTES: 1500)
+            "num_predict": 600  
         }
     }
 
@@ -124,7 +124,7 @@ def generate_plan(prompt: str, feedback: dict = None) -> dict:
         response = requests.post(
             OLLAMA_URL,
             json=payload,
-            timeout=120  # 🔥 aumentado
+            timeout=120  
         )
 
         response.raise_for_status()
@@ -136,7 +136,6 @@ def generate_plan(prompt: str, feedback: dict = None) -> dict:
         if not plan:
             print("[planner] fallback usado")
 
-            # 🔥 fallback melhor (não vazio)
             return {
                 "domain": domain,
                 "entities": [
@@ -148,7 +147,7 @@ def generate_plan(prompt: str, feedback: dict = None) -> dict:
                 ]
             }
 
-        # garantir estrutura mínima
+
         plan.setdefault("domain", domain)
         plan.setdefault("entities", [])
         plan.setdefault("relations", [])
