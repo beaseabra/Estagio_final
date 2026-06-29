@@ -1,15 +1,4 @@
 # ===== handlers/create_object_handler.py =====
-# Handler estável para criar um objeto isolado.
-# Não depende do LLM: extrai nome do objeto e campos diretamente do prompt.
-# Devolve sempre um schema compatível com o frontend:
-# {
-#   "objects": [...],
-#   "relations": [],
-#   "actions": [],
-#   "workspaces": [],
-#   "metadata": {...}
-# }
-
 import re
 import time
 
