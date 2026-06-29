@@ -1,12 +1,5 @@
 # ===== sql_server_schema_adapter.py =====
-# Adapter determinístico para converter o blueprint AiBizCore para um formato
-# compatível com SQL Server / regras internas do orientador.
-#
-# IMPORTANTE:
-# - Não altera o blueprint original.
-# - Usa apenas objects + relations.
-# - Ignora actions + workspaces para criação de base de dados.
-# - Gera um preview estruturado e SQL T-SQL, mas NÃO executa nada.
+
 
 from __future__ import annotations
 
@@ -24,8 +17,6 @@ from typing import Any, Dict, List, Optional, Tuple
 TABLE_PREFIX = "CU"
 SYSTEM_USER_TABLE = "CSYSUser"
 
-# Campos fixos presentes em todas as tabelas, além da primary key.
-# A primary key é adicionada dinamicamente: <entity_english_lower>id.
 BASE_FIELDS: List[Dict[str, str]] = [
     {"campo": "creationdate", "display": "Date", "datatype": "date"},
     {"campo": "descendantlocked", "display": "Boolean", "datatype": "bit"},
@@ -57,10 +48,8 @@ AIBIZ_TO_SQLSERVER_TYPES: Dict[str, Dict[str, str]] = {
     "uniqueidentifier": {"display": "Guid", "datatype": "uniqueidentifier"},
 }
 
-# Tradução determinística. Primeiro traduz por identificador completo; se não existir,
-# traduz token a token. Isto evita depender do LLM para nomes críticos.
+
 FULL_IDENTIFIER_TRANSLATIONS: Dict[str, str] = {
-    # Objetos comuns
     "cliente": "customer",
     "clientes": "customers",
     "produto": "product",
@@ -122,7 +111,6 @@ FULL_IDENTIFIER_TRANSLATIONS: Dict[str, str] = {
     "professor": "teacher",
     "professores": "teachers",
 
-    # Campos comuns
     "nome": "name",
     "email": "email",
     "telefone": "phone",
@@ -169,7 +157,6 @@ FULL_IDENTIFIER_TRANSLATIONS: Dict[str, str] = {
 }
 
 TOKEN_TRANSLATIONS: Dict[str, str] = {
-    # Tokens de objetos/campos
     "cliente": "customer",
     "produto": "product",
     "encomenda": "order",
@@ -206,7 +193,6 @@ TOKEN_TRANSLATIONS: Dict[str, str] = {
     "item": "item",
     "tipo": "type",
 
-    # Tokens de campos
     "nome": "name",
     "email": "email",
     "telefone": "phone",
@@ -631,8 +617,6 @@ def convert_blueprint_to_sqlserver_schema(blueprint: Dict[str, Any]) -> Dict[str
             )
 
         elif rel_type == "MANY_TO_MANY":
-            # Regra indicada: não criar tabela intermédia.
-            # Colocar o ID de cada tabela na outra.
             source_fk = source_table["primary_key"]
             target_fk = target_table["primary_key"]
 
