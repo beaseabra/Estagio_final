@@ -1,6 +1,4 @@
 # ===== aggregator.py =====
-# FIX: expõe build_final_blueprint (nome canónico) E aggregate_blueprint (alias de
-# retrocompatibilidade) para eliminar o ImportError em create_system_handler e feedback_loop.
 
 from typing import Dict, Any
 from models import parse_blueprint
@@ -38,9 +36,9 @@ def aggregate_blueprint(
     workspaces_data: Any,
 ) -> Dict[str, Any]:
     """
-    Alias retrocompatível usado por create_system_handler e feedback_loop.
+    retrocompatível usado por create_system_handler e feedback_loop.
 
-    ATENÇÃO: a ordem dos argumentos é diferente da função canónica:
+    A ordem dos argumentos é diferente da função canónica:
         aggregate_blueprint(objects, relations, actions, workspaces)
     enquanto build_final_blueprint recebe (objects, relations, workspaces, actions).
     Este wrapper normaliza a diferença.
