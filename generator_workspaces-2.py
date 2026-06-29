@@ -72,16 +72,16 @@ def generate_workspaces(plan: dict, objects_data: dict = None):
         workspaces = data.get("workspaces", [])
 
         # ==========================================
-        # REVISÃO DE SEGURANÇA (O Toque Python)
+        # REVISÃO DE SEGURANÇA 
         # ==========================================
         has_admin = False
         
         for ws in workspaces:
-            # Garante que não há "N/A" na entidade principal
+            
             if not ws.get("primary_entity") and ws.get("objects"):
                 ws["primary_entity"] = ws["objects"][0]
                 
-            # Garante que o Admin vê tudo, mesmo que a IA se esqueça
+           
             if ws["name"].lower() in ["administração", "admin", "administrador"]:
                 ws["name"] = "Administração"
                 ws["objects"] = all_entity_names
@@ -89,7 +89,6 @@ def generate_workspaces(plan: dict, objects_data: dict = None):
                     ws["primary_entity"] = all_entity_names[0]
                 has_admin = True
 
-        # Se a IA ignorar a regra de criar um Administrador, nós forçamos a criação
         if not has_admin:
              workspaces.append({
                 "name": "Administração",
@@ -106,7 +105,7 @@ def generate_workspaces(plan: dict, objects_data: dict = None):
 
     except Exception as e:
         print(f"[generator_workspaces] Erro LLM: {e}")
-        # Em caso de falha da IA, cria pelo menos o Administrador para não quebrar a app
+      
         return {"workspaces": [{
             "name": "Administração",
             "description": "Controlo total",
