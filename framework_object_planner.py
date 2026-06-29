@@ -1,23 +1,4 @@
 # ===== framework_object_planner.py =====
-# AiBizCore — Framework Object Planner
-#
-# Objetivo:
-# - Receber um blueprint AiBizCore.
-# - Converter o blueprint para o modelo SQL Server já usado pelo projeto.
-# - Gerar um PLANO DRY-RUN da metadata necessária para criar objetos lógicos
-#   na framework AiBizCore/ecobite.
-#
-# Segurança:
-# - Este ficheiro NÃO executa INSERT/UPDATE/DELETE.
-# - Não altera a base de dados.
-# - Só produz JSON com o plano técnico a executar no futuro.
-#
-# Uso direto:
-#   python3 framework_object_planner.py blueprint.json > framework_plan.json
-#
-# Uso por import:
-#   from framework_object_planner import plan_framework_metadata_from_blueprint
-#   plan = plan_framework_metadata_from_blueprint(schema)
 
 from __future__ import annotations
 
@@ -127,11 +108,10 @@ def _human_field_name_from_source(
     object_tokens = _split_tokens(source_object)
 
     if len(tokens) > 1 and object_tokens:
-        # Caso comum em campos de teste: codigo_teste, valor_teste, data_teste.
+        
         if tokens[-1] == object_tokens[0]:
             tokens = tokens[:-1]
 
-        # Caso em que o campo termina com o nome completo do objeto em tokens.
         if len(tokens) > len(object_tokens) and tokens[-len(object_tokens):] == object_tokens:
             tokens = tokens[:-len(object_tokens)]
 
