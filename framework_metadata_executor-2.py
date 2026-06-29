@@ -1,29 +1,4 @@
 # ===== framework_metadata_executor.py =====
-# AiBizCore — Framework Metadata Executor
-#
-# Objetivo:
-# - Executar a criação da metadata da framework AiBizCore/ecobite.
-# - Usa o plano gerado por framework_object_planner.py.
-# - Usa o preflight de framework_metadata_preflight.py antes de escrever.
-#
-# Segurança:
-# - Por defeito NÃO executa.
-# - Execução real exige:
-#     1) AIBIZCORE_ENABLE_FRAMEWORK_EXECUTION=true no .env
-#     2) execute=True
-#     3) confirm_phrase="EXECUTE_FRAMEWORK_METADATA"
-#     4) preflight can_execute=True
-#
-# Regra crítica:
-# - CSYSObject.nameunc é exatamente o nome da tabela física.
-# - CSYSObject.pkfieldname é exatamente a primary key física.
-# - CSYSObjectField.nameunc / CSYSObjectReference.nameunc são exatamente colunas físicas.
-#
-# Uso CLI dry-run:
-#   python3 framework_metadata_executor.py blueprint.json
-#
-# Uso CLI execute:
-#   python3 framework_metadata_executor.py blueprint.json --execute EXECUTE_FRAMEWORK_METADATA
 
 from __future__ import annotations
 
@@ -77,11 +52,6 @@ def _is_placeholder(value: Any) -> bool:
 
     value = value.strip()
 
-    # Só placeholders técnicos do planner devem ser resolvidos.
-    # Antes, qualquer XML/HTML que começasse por "<", terminasse por ">" e
-    # tivesse ":" algures era convertido para GUID. Isso corrompia:
-    # - CSYSObjectLayoutSection.workingdata
-    # - CSYSView.clientdata
     return re.fullmatch(r"<[A-Z0-9_]+:[^<>]+>", value) is not None
 
 
@@ -200,21 +170,17 @@ def _default_for_required_column(column: str, data_type: str) -> Any:
     if data_type in {"nvarchar", "varchar", "nchar", "char", "text", "ntext"}:
         return ""
 
-    # Fallback. Se o SQL Server recusar, o erro continua explícito e a transação faz rollback.
     return ""
 
 
 def _prepare_insert_data(cursor, table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     table_columns = _load_table_columns(cursor, table)
-
-    # Remove campos que não existem fisicamente na tabela.
     prepared = {
         key: value
         for key, value in data.items()
         if key in table_columns
     }
 
-    # Preenche colunas NOT NULL sem default que não estejam no plano.
     for column, meta in table_columns.items():
         if column in prepared:
             continue
@@ -265,10 +231,6 @@ def _base_status_fields(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
 # ---------------------------------------------------------------------
 
 def insert_csys_object(cursor, data: Dict[str, Any]) -> None:
-    # CSYSObject tem vários campos BIT sem NULL permitido na framework.
-    # No processo manual estes campos ficam com valores neutros/false.
-    # Se não forem enviados, SQL Server rejeita o INSERT, por exemplo:
-    # "Cannot insert the value NULL into column 'hascustomercontrol'".
     row = _base_status_fields(
         {
             "objectid": data["objectid"],
@@ -511,23 +473,6 @@ def insert_csys_action(cursor, action: Dict[str, Any]) -> None:
 
 
 def insert_csys_object_action(cursor, object_action: Dict[str, Any]) -> None:
-    """
-    Insere CSYSObjectAction.
-
-    Correção importante:
-    - O campo objectkeyid tem de ser preservado.
-      Exemplos observados:
-        Novo <Objeto>:
-            objectid    = objeto base Listagem / CSYSView
-            objectkeyid = viewid da listagem concreta
-
-        <objeto>-listagem:
-            objectid    = objeto base Layout / CSYSObjectLayout
-            objectkeyid = objectlayoutid do layout concreto
-
-    - Não forçamos objectid para NULL no executor.
-      O planner é que deve decidir objectid e objectkeyid.
-    """
     row = _base_status_fields(
         {
             "objectactionid": object_action["objectactionid"],
@@ -537,8 +482,6 @@ def insert_csys_object_action(cursor, object_action: Dict[str, Any]) -> None:
             "status": object_action.get("status", "Pub"),
             "state": object_action.get("state", "Active"),
 
-            # No padrão funcional observado, CSYSObjectAction.ostate pode ficar NULL.
-            # Por isso preservamos explicitamente None quando o planner envia None.
             "ostate": object_action.get("ostate"),
 
             "actionid": object_action["actionid"],
@@ -651,7 +594,6 @@ def _execute_object_plan(
             }
         )
 
-    # Resolver placeholders de todo o object_plan de uma vez.
     resolved_plan = _resolve_placeholders(object_plan, placeholder_map)
 
     # 1. CSYSObject
@@ -675,11 +617,6 @@ def _execute_object_plan(
         log(op["step"], op["operation"], "inserted", f"{len(op.get('data') or [])} references")
 
     # 4. CSYSView
-    # Importante:
-    # CSYSObjectLayoutSection.objdataid tem FK para CSYSView.viewid.
-    # Por isso, a View tem de existir ANTES de inserir a LayoutSection.
-    # O plano pode continuar a numerar a View como step 7, mas a execução
-    # tem de respeitar as dependências reais da base de dados.
     op = _extract_operation(resolved_plan, "UPSERT_CSYSView")
     if op:
         insert_csys_view(cursor, op["data"])
@@ -713,11 +650,6 @@ def _execute_object_plan(
         log(op["step"], op["operation"], "inserted", f"{len(op.get('data') or [])} actions")
 
     # 9. CSYSObjectAction
-    # O executor já não reescreve objectid.
-    # A partir de agora, o planner tem de enviar:
-    # - objectid correto
-    # - objectkeyid correto
-    # - flags show/save/refresh corretas
     op = _extract_operation(resolved_plan, "UPSERT_CSYSObjectAction_BATCH")
     if op:
         object_actions = op.get("data") or []
