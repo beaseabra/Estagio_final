@@ -1,15 +1,4 @@
 # ===== models.py =====
-# Camada de armadura Pydantic v2 — AiBizCore
-#
-# PROPÓSITO: Absorver todo o output errático do Llama 3B (null, tipos errados,
-# chaves inexistentes, listas que são dicts, contexto fundido) ANTES de chegar
-# ao aggregator, evaluator ou qualquer handler.
-#
-# REGRA DE OURO: Nenhum componente downstream toca em dicts crus da IA.
-# Toda a validação e coerção acontece aqui, uma vez só.
-#
-# RETROCOMPATIBILIDADE: BlueprintModel.to_dict() devolve o formato exacto
-# que o pipeline legado (cache, storage, frontend, validator) espera.
 
 from __future__ import annotations
 
@@ -18,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# UTILITÁRIOS INTERNOS — usados pelos validators e pelo aggregator
+# UTILITÁRIOS INTERNOS 
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _coerce_list(v: Any) -> list:
@@ -52,7 +41,6 @@ VALID_FIELD_TYPES = {
     "date", "datetime", "text",
 }
 
-# Aliases que o LLM usa mas o sistema não — normalizados na entrada
 _FIELD_TYPE_ALIASES: dict[str, str] = {
     "int": "integer", "number": "integer", "num": "integer",
     "bigint": "integer", "smallint": "integer",
@@ -69,9 +57,7 @@ VALID_ACTION_TYPES = {
     "DOMAIN_ACTION", "CRUD_ACTION", "REPORT_ACTION",
     "NOTIFICATION_ACTION", "VALIDATION_ACTION",
     "INTEGRATION_ACTION", "AUTOMATED_ACTION",
-    # legado — mantidos para retrocompatibilidade com schemas existentes
     "CREATE_OBJECT", "CREATE_RELATION", "ASSIGN_TO_WORKSPACE",
-    # português vindo do generator_actions
     "AÇÃO DE DOMÍNIO", "OPERAÇÃO BÁSICA",
 }
 
@@ -90,7 +76,6 @@ class FieldModel(BaseModel):
     @classmethod
     def clean_name(cls, v: Any) -> str:
         s = _safe_str(v).lower().replace(" ", "_").replace("-", "_")
-        # remover caracteres inválidos mantendo apenas alfanuméricos e underscore
         import re
         return re.sub(r"[^a-z0-9_]", "", s)
 
@@ -121,7 +106,6 @@ class ObjectModel(BaseModel):
     @classmethod
     def coerce_fields(cls, v: Any) -> list:
         raw = _coerce_list(v)
-        # filtrar itens que não são dicts ou que não têm nome
         return [item for item in raw if isinstance(item, dict) and item.get("name")]
 
     @model_validator(mode="after")
@@ -130,7 +114,7 @@ class ObjectModel(BaseModel):
         if not self.name:
             return self
         pk_name = self.name.lower() + "id"
-        # remover caracteres inválidos do pk_name (mesmo que ObjectModel.name tenha espaços)
+        
         import re
         pk_name = re.sub(r"[^a-z0-9_]", "", pk_name)
         if not any(f.name == pk_name for f in self.fields):
@@ -295,7 +279,7 @@ class MetadataModel(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BLUEPRINT — raiz do schema, Single Source of Truth
+# BLUEPRINT 
 # ─────────────────────────────────────────────────────────────────────────────
 
 class BlueprintModel(BaseModel):
@@ -311,12 +295,11 @@ class BlueprintModel(BaseModel):
         raw = _coerce_list(v)
         result = []
         for item in raw:
-            # instâncias já validadas vindas do aggregator — serializar para dict
+
             if isinstance(item, ObjectModel):
                 result.append(item.model_dump())
             elif isinstance(item, dict) and item.get("name"):
                 result.append(item)
-            # None e outros tipos são silenciosamente descartados
         return result
 
     @field_validator("relations", mode="before")
@@ -369,8 +352,6 @@ class BlueprintModel(BaseModel):
         )
         return self
 
-    # ── Serialização retrocompatível ──────────────────────────────────────────
-
     def to_dict(self) -> dict:
         """
         Exporta para dict puro com as chaves originais do projecto.
@@ -420,11 +401,6 @@ class BlueprintModel(BaseModel):
         }
 
     model_config = {"populate_by_name": True}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# FUNÇÃO DE ENTRADA PÚBLICA
-# ─────────────────────────────────────────────────────────────────────────────
 
 def parse_blueprint(raw: Any) -> BlueprintModel:
     """
