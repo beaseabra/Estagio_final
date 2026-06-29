@@ -1,9 +1,4 @@
 # ===== evaluator.py =====
-# Refatorado para Pydantic v2 — AiBizCore
-#
-# MUDANÇA PRINCIPAL: recebe BlueprintModel ou dict.
-# Se receber dict, passa primeiro pelo parse_blueprint().
-# Elimina todos os .get() sobre dados crus da IA.
 
 from __future__ import annotations
 
@@ -29,15 +24,13 @@ def evaluate_blueprint(
     operation_type: str = "CREATE_SYSTEM",
 ) -> dict:
 
-    # ── Normalizar entrada ────────────────────────────────────────────────────
     if isinstance(blueprint, dict):
         bp = parse_blueprint(blueprint)
     elif isinstance(blueprint, BlueprintModel):
         bp = blueprint
     else:
         bp = BlueprintModel()
-
-    # ── Bypass para operações parciais ───────────────────────────────────────
+        
     if operation_type != "CREATE_SYSTEM":
         return {
             "valid": True,
@@ -60,9 +53,6 @@ def evaluate_blueprint(
     warnings: list[str] = []
     missing_components: list[str] = []
 
-    # ── Absorver erros de validação do validator (se presentes no dict original) ──
-    # Nota: _validation já não é campo do BlueprintModel; lê-se do dict original
-    # para retrocompatibilidade com o pipeline legado.
     if isinstance(blueprint, dict):
         val = blueprint.get("_validation") or {}
 
@@ -79,7 +69,7 @@ def evaluate_blueprint(
                 warnings.extend(str(w) for w in raw_warnings if w is not None)
 
     # ─────────────────────────────────────────────
-    # 1. STRUCTURAL COMPLETENESS (max 25)
+    # STRUCTURAL COMPLETENESS (max 25)
     # ─────────────────────────────────────────────
 
     struct_score = 0
@@ -104,7 +94,7 @@ def evaluate_blueprint(
     struct_score = min(struct_score, 25)
 
     # ─────────────────────────────────────────────
-    # 2. RICHNESS (max 20)
+    # RICHNESS (max 20)
     # ─────────────────────────────────────────────
 
     rich_score = 0
@@ -126,17 +116,17 @@ def evaluate_blueprint(
     rich_score = min(rich_score, 20)
 
     # ─────────────────────────────────────────────
-    # 3. CONSISTENCY (max 20)
+    # CONSISTENCY (max 20)
     # ─────────────────────────────────────────────
 
     cons_score = 0
 
-    # FK dangling check — agora 100% seguro via FieldModel.name
+
     fk_issues = 0
     for obj in objects:
         for f in obj.fields:
             if f.name.startswith("ref_"):
-                target = f.name[4:]  # ref_cliente → cliente
+                target = f.name[4:]  
                 if target not in object_names_lower:
                     fk_issues += 1
 
@@ -145,7 +135,6 @@ def evaluate_blueprint(
     elif fk_issues <= 2:
         cons_score += 4
 
-    # Cobertura de workspaces
     assigned: set[str] = set()
     for ws in workspaces:
         assigned.update(ws.objects)
@@ -161,7 +150,7 @@ def evaluate_blueprint(
     cons_score = min(cons_score, 20)
 
     # ─────────────────────────────────────────────
-    # 4. DOMAIN ALIGNMENT (max 20)
+    # DOMAIN ALIGNMENT (max 20)
     # ─────────────────────────────────────────────
 
     align_score = 10
@@ -181,7 +170,7 @@ def evaluate_blueprint(
     align_score = min(align_score, 20)
 
     # ─────────────────────────────────────────────
-    # 5. BUSINESS LOGIC (max 15)
+    # BUSINESS LOGIC (max 15)
     # ─────────────────────────────────────────────
 
     biz_score = 0
@@ -208,7 +197,6 @@ def evaluate_blueprint(
 
     valid = total_score >= MINIMUM_PASSING_SCORE and len(objects) > 0
 
-    # ── Feedback para o planner ───────────────────────────────────────────────
     feedback: list[str] = []
     if len(objects) < 4:
         feedback.append("Add more entities to increase system depth")
@@ -235,7 +223,6 @@ def evaluate_blueprint(
     }
 
 
-# Alias retrocompatível (usado em create_system_handler.py)
 def evaluate_schema(
     schema: Union[BlueprintModel, dict],
     prompt: str = "",
