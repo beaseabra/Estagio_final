@@ -1,6 +1,4 @@
 # ===== framework_object_routes.py =====
-# Rotas FastAPI para gerar plano de metadata da framework.
-# Modo seguro: dry-run, sem escrita na base de dados.
 
 from __future__ import annotations
 
