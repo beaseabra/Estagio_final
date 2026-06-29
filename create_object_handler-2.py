@@ -81,10 +81,6 @@ def _split_fields(raw_fields: str) -> list:
     fields = []
 
     for part in parts:
-        # suporta formatos tipo:
-        # preco:float
-        # preco float
-        # preco do tipo float
         field_name = part
         field_type = None
 
@@ -138,7 +134,6 @@ def _extract_object_name(prompt: str) -> str:
         if match:
             return _normalize_name(match.group(1))
 
-    # fallback simples
     match = re.search(r"objeto\s+([A-Za-zÀ-ÿ0-9_ -]+)", prompt, re.IGNORECASE)
     if match:
         name = match.group(1)
@@ -183,7 +178,6 @@ def _build_object(prompt: str) -> dict:
         if not fname or fname in seen:
             continue
 
-        # Evita IDs inventados no prompt, exceto se for a PK canónica
         if fname.endswith("id") and fname != pk_name:
             continue
 
