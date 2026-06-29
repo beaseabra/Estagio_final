@@ -1,11 +1,4 @@
 # ===== api.py =====
-# AiBizCore API v4.3
-# Tratamento de erros estruturado em todas as rotas.
-# Mantém o pipeline atual e acrescenta:
-# - rota isolada de preview SQL Server
-# - rotas isoladas de plano/dry-run/execução SQL Server
-# - rota isolada de plano/dry-run da metadata da framework AiBizCore
-# - rota isolada de execução segura da metadata da framework AiBizCore
 
 from __future__ import annotations
 
@@ -47,27 +40,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rotas isoladas para preview da base de dados SQL Server.
-# Não executam SQL e não interferem com o pipeline principal.
 app.include_router(db_preview_router)
 
-# Rotas isoladas para plano/dry-run/execução SQL Server.
-# Por defeito funcionam em dry-run. Execução real exige confirmação explícita.
 app.include_router(db_execution_router)
 
-# Rotas isoladas para plano/dry-run da metadata da framework AiBizCore.
-# Não executam INSERT/UPDATE/DELETE. Só geram plano JSON.
 app.include_router(framework_object_router)
 
-# Rotas isoladas para dry-run/execução segura da metadata da framework AiBizCore.
-# Execução real exige:
-# - AIBIZCORE_ENABLE_FRAMEWORK_EXECUTION=true
-# - confirm_phrase="EXECUTE_FRAMEWORK_METADATA"
 app.include_router(framework_metadata_executor_router)
 
 
 # ---------------------------------------------------------------------------
-# Handler global de exceções — evita erros 500 silenciosos
+# Handler global de exceções - evita erros 500 silenciosos
 # ---------------------------------------------------------------------------
 
 @app.exception_handler(Exception)
