@@ -1,5 +1,4 @@
 # ===== feedback_loop.py =====
-# FIX: `from aggregator import aggregate_blueprint` agora é válido.
 
 import time
 
@@ -8,7 +7,7 @@ from generator_objects import generate_objects
 from generator_relations import generate_relations
 from generator_actions import generate_actions
 from generator_workspaces import generate_workspaces
-from aggregator import aggregate_blueprint   # FIX: alias disponível
+from aggregator import aggregate_blueprint   
 from validator import validate_and_fix
 from evaluator import evaluate_blueprint
 
@@ -67,7 +66,6 @@ def _run_pipeline(prompt: str, feedback: dict = None) -> tuple:
         actions_data    = future_actions.result()
         workspaces_data = future_workspaces.result()
 
-    # aggregate_blueprint(objects, relations, actions, workspaces) — ordem do alias
     blueprint  = aggregate_blueprint(objects_data, relations_data, actions_data, workspaces_data)
     blueprint  = validate_and_fix(blueprint, prompt)
     evaluation = evaluate_blueprint(blueprint, prompt)
