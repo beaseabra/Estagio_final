@@ -1,4 +1,4 @@
-# AiBizCore Intelligence — Instructions
+# AiBizCore Intelligence - Instructions
 
 Este documento explica como colocar a arquitetura a funcionar localmente e descreve a função dos principais ficheiros, para facilitar manutenção, testes e alterações futuras.
 
