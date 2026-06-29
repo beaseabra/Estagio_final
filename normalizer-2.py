@@ -12,28 +12,24 @@ def normalize_object_name(name: str):
 
     name = str(name).strip()
 
-    # lowercase helper
     lower = name.lower()
 
-    # remove trailing "id"
     if lower.endswith("id") and len(name) > 3:
         name = name[:-2]
 
-    # remove duplicate spaces/underscores
     name = re.sub(
         r"[_\s]+",
         " ",
         name
     )
 
-    # remove special chars
+
     name = re.sub(
         r"[^a-zA-Z0-9 ]",
         "",
         name
     )
 
-    # TitleCase
     name = "".join(
         word.capitalize()
         for word in name.split()
@@ -53,7 +49,6 @@ def normalize_field_name(name: str):
 
     name = str(name).strip().lower()
 
-    # remove duplicate id
     while "idid" in name:
 
         name = name.replace(
@@ -61,14 +56,13 @@ def normalize_field_name(name: str):
             "id"
         )
 
-    # spaces/dashes -> underscore
     name = re.sub(
         r"[\s\-]+",
         "_",
         name
     )
 
-    # remove special chars
+    
     name = re.sub(
         r"[^a-z0-9_]",
         "",
