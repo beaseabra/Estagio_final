@@ -1,20 +1,4 @@
 # ===== db_execution_agent.py =====
-# AiBizCore — Agente seguro para SQL Server usando pymssql
-#
-# Esta versão deve ser usada quando pyodbc não funciona por falta de libodbc/unixODBC.
-# Já foi validado que pymssql consegue ligar à base Demo_AIBC_Demo4.
-#
-# Segurança:
-# - Por defeito NÃO executa SQL real.
-# - A execução real só acontece se:
-#     dry_run=False
-#     execute=True
-#     confirm_phrase="EXECUTE_SQL_SERVER"
-#     AIBIZCORE_ENABLE_DB_EXECUTION=true
-#     dados SQL Server configurados no .env
-# - A password fica no backend/.env, nunca no frontend.
-# - Usa autocommit por statement porque a stored procedure da framework
-#   sp_sys_create_ID_Relation falha quando chamada dentro de uma transação explícita.
 
 from __future__ import annotations
 
@@ -113,10 +97,6 @@ def _mask_secret(value: Optional[str]) -> str:
 
 
 def _build_connection_string_from_parts() -> Optional[str]:
-    """
-    Mantido apenas para status/compatibilidade.
-    A ligação real desta versão usa pymssql com campos separados.
-    """
     server = _clean_env(SQLSERVER_SERVER_ENV)
     database = _clean_env(SQLSERVER_DATABASE_ENV)
     username = _clean_env(SQLSERVER_USERNAME_ENV)
@@ -147,10 +127,6 @@ def _build_connection_string_from_parts() -> Optional[str]:
 
 
 def get_connection_string(explicit_connection_string: Optional[str] = None) -> Optional[str]:
-    """
-    Mantido para compatibilidade com versões anteriores.
-    Nesta versão, a execução real usa get_connection_parts().
-    """
     env_value = _clean_env(CONNECTION_STRING_ENV)
 
     if env_value:
@@ -689,11 +665,6 @@ def execute_sql_server_plan(
                 "warnings": plan.get("warnings", []) + preflight.get("warnings", []),
             }
 
-        # IMPORTANTE:
-        # A procedure da framework sp_sys_create_ID_Relation foi validada no SSMS
-        # em modo autocommit, mas falhou quando chamada dentro de uma transação
-        # explícita via pymssql. Por isso executamos statement a statement em
-        # autocommit, tal como no SQL Server Management Studio.
         conn.autocommit(True)
 
         for idx, statement in enumerate(executable_statements, start=1):
