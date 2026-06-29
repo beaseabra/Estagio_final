@@ -157,13 +157,13 @@ OLLAMA_PLANNER_MODEL=qwen2.5:7b
 OLLAMA_GENERATOR_MODEL=llama3.2:3b
 EMBEDDING_MODEL=nomic-embed-text
 
-# Execução SQL real — manter desativado por defeito
+# Execução SQL real - manter desativado por defeito
 ENABLE_SQL_EXECUTION=false
 
-# Execução de metadata real na framework — manter desativado por defeito
+# Execução de metadata real na framework - manter desativado por defeito
 ENABLE_FRAMEWORK_EXECUTION=false
 
-# Configuração SQL Server — preencher apenas em ambiente seguro
+# Configuração SQL Server - preencher apenas em ambiente seguro
 DB_SERVER=<servidor>
 DB_DATABASE=<base_de_dados>
 DB_USERNAME=<utilizador>
