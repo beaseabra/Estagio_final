@@ -75,7 +75,7 @@ def normalize_schema(schema: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
         "actions": schema.get("actions", []) if isinstance(schema.get("actions", []), list) else []
     }
 
-    # Preserva outros metadados que eventualmente existam.
+
     for key, value in schema.items():
         if key not in normalized:
             normalized[key] = value
@@ -185,12 +185,9 @@ def run_pipeline(prompt: str, current_schema: Optional[Dict[str, Any]] = None):
         else:
             current_schema = empty_schema()
             print("[main] sem current_schema ativo nem cache válida; a usar schema vazio.")
-
-    # CORREÇÃO: Limpar a poluição de contexto do frontend.
-    # Extraímos estritamente o pedido atual para não confundir o motor.
+            
     actual_prompt = extract_actual_prompt(prompt)
 
-    # Passamos apenas o texto limpo para o classificador e para os handlers.
     route = classify(actual_prompt, current_schema)
 
     print(f"\n[main] route = {route}")
@@ -207,7 +204,6 @@ def run_pipeline(prompt: str, current_schema: Optional[Dict[str, Any]] = None):
 
     handler = ROUTES[route]
 
-    # Executar a modificação ou criação utilizando a instrução isolada.
     if route == "UPDATE_SCHEMA":
         result = handler(actual_prompt, current_schema)
     else:
