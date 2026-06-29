@@ -8,7 +8,7 @@ from config import MODELS, OPTIONS, OLLAMA_URL
 
 
 # =========================
-#  PROMPT MELHORADO
+#  PROMPT 
 # =========================
 
 SYSTEM_PROMPT = """
@@ -104,7 +104,7 @@ def _enrich_object(obj: dict, domain: str = "") -> dict:
     if domain == "hospital":
         extra = [("numero_processo", "string"), ("seguro", "string")]
     elif domain == "ecommerce":
-        extra = [("classificacao", "float"), ("numero_vendas", "integer")] # Traduzido rating para classificacao
+        extra = [("classificacao", "float"), ("numero_vendas", "integer")] 
     elif domain == "finance":
         extra = [("iban", "string"), ("saldo", "float")]
 
@@ -220,13 +220,13 @@ def generate_objects(plan: dict) -> dict:
     payload = {
         "model": MODELS["generator_objects"],
         "prompt": f"{SYSTEM_PROMPT}\n\nEntities to generate:\n{json.dumps(entities, indent=2, ensure_ascii=False)}",
-        "format": "json", # OBRIGA a ser JSON
+        "format": "json", 
         "stream": False,
-        "options": OPTIONS # Usa as opções de RAM seguras (sem o num_predict de 2048)
+        "options": OPTIONS 
     }
 
     try:
-        res = requests.post(OLLAMA_URL, json=payload, timeout=180) # Menos timeout, porque em JSON ele é mais rápido
+        res = requests.post(OLLAMA_URL, json=payload, timeout=180) 
         res.raise_for_status()
 
         raw = res.json().get("response", "")
