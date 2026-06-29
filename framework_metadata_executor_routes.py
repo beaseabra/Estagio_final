@@ -1,14 +1,4 @@
 # ===== framework_metadata_executor_routes.py =====
-# Rotas FastAPI para executar metadata da framework.
-#
-# Segurança:
-# - Dry-run por defeito.
-# - Execução real exige:
-#   AIBIZCORE_ENABLE_FRAMEWORK_EXECUTION=true
-#   execute=true
-#   dry_run=false
-#   confirm_phrase="EXECUTE_FRAMEWORK_METADATA"
-
 from __future__ import annotations
 
 import logging
@@ -98,7 +88,4 @@ def framework_execute(payload: FrameworkExecuteRequest) -> Dict[str, Any]:
 
 @router.post("/framework-metadata-execute")
 def framework_metadata_execute_alias(payload: FrameworkExecuteRequest) -> Dict[str, Any]:
-    """
-    Alias de /api/framework-execute.
-    """
     return framework_execute(payload)
