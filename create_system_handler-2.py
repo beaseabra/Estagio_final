@@ -1,8 +1,4 @@
 # ===== handlers/create_system_handler.py =====
-# Handler principal para a rota CREATE_SYSTEM.
-# Executa o pipeline completo:
-# Cache → Planner → Generators → Aggregator → Semantic Rules
-# → Canonical Schema → Validator → Evaluator → Storage.
 
 import time
 import json
@@ -24,7 +20,6 @@ from canonical_schema import apply_canonical_schema
 from storage import save_schema
 
 
-# tentativa inicial + 1 retry
 MAX_RETRIES = 2
 
 
@@ -128,9 +123,6 @@ def handle_create_system(prompt: str):
             # =========================
             # GENERATORS
             # =========================
-            # objects e actions podem correr em paralelo.
-            # relations e workspaces dependem dos objects finais,
-            # por isso correm depois.
 
             with ThreadPoolExecutor(max_workers=2) as executor:
                 future_objects = executor.submit(
