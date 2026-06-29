@@ -1,10 +1,4 @@
 # ===== handlers/update_schema_handler.py =====
-# v4.6 — Update schema robusto para AiBizCore
-#         Regras determinísticas mais tolerantes para prompts naturais
-#         Compatível com /api/generate + /api/chat
-#         Parser robusto para outputs LLM (<think>, markdown, texto livre)
-#         Operações determinísticas antes do LLM:
-#         Objects, fields, relations, workspaces e actions
 
 from __future__ import annotations
 
@@ -592,8 +586,6 @@ def _find_object_for_field(
 
 
 def _parse_field_list(raw: str) -> List[Dict[str, str]]:
-    # Converte texto livre de campos numa lista de campos.
-    # Mantém underscores.
     raw = str(raw or "").strip()
 
     if not raw:
@@ -601,7 +593,6 @@ def _parse_field_list(raw: str) -> List[Dict[str, str]]:
 
     raw = re.sub(r"^(?:campo|campos)\s+", "", raw, flags=re.IGNORECASE).strip()
 
-    # Normaliza separadores sem destruir underscores.
     raw = raw.replace(";", ",")
     raw = re.sub(r"\s+\be\b\s+", ",", raw, flags=re.IGNORECASE)
     raw = re.sub(r"\s+\band\b\s+", ",", raw, flags=re.IGNORECASE)
@@ -616,13 +607,12 @@ def _parse_field_list(raw: str) -> List[Dict[str, str]]:
         field_name = part
         field_type = None
 
-        # Formato: nome:tipo
+        
         if ":" in part:
             left, right = part.split(":", 1)
             field_name = left.strip()
             field_type = _normalize_type(right.strip())
 
-        # Formato: nome como tipo / nome tipo string
         else:
             match = re.match(
                 r"(.+?)\s+(?:como|do\s+tipo|tipo)?\s*"
@@ -869,8 +859,6 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
     for match in re.finditer(add_field_pattern, low, re.IGNORECASE):
         raw_field = match.group(1)
 
-        # Evita tratar listas como um único campo se o utilizador escreveu
-        # algo ambíguo como "adiciona campo nome, email e telefone".
         if "," in raw_field:
             continue
 
@@ -894,8 +882,6 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             })
 
     # 5. ADD_OBJECT
-    # Suporta nomes de objetos com espaços:
-    # "cria um objeto Teste Botao A com campo codigo_botao, valor_botao e data_botao"
     add_object_pattern = (
         r"(?:adiciona|adicionar|cria|criar)\s+"
         r"(?:um\s+|uma\s+)?objeto\s+"
@@ -955,8 +941,6 @@ def _rule_based_operations(user_prompt: str, bp: BlueprintModel) -> List[Dict[st
             })
 
     # 8. ADD_RELATION
-    # Suporta nomes de objetos com espaços:
-    # "cria uma relação entre Teste Botao A e Teste Botao B"
     add_relation_patterns = [
         (
             r"(?:cria|criar|adiciona|adicionar)\s+"
